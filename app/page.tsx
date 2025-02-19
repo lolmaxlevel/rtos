@@ -1,95 +1,86 @@
-import Image from "next/image";
+'use client'
 import styles from "./page.module.css";
+import useWebSocket from "react-use-websocket";
+import {useEffect, useMemo, useState} from "react";
+import {processPackets} from "@/app/utils/packet";
+import { createApexLineConfig } from '@/app/configs/apexChartConfigs';
+import { createEChartsConfig } from '@/app/configs/eChartsConfigs';
+import { createHighchartsConfig } from '@/app/configs/highchartsConfig';
+import { CumulativeData } from '@/app/types/types';
+import '@/app/configs/chartSetup';
+import { Line } from 'react-chartjs-2';
+import { createLineChartConfig } from '@/app/configs/chartConfigs';
+import ReactApexChart from 'react-apexcharts';
+import ReactECharts from 'echarts-for-react';
+import HighchartsReact from 'highcharts-react-official';
+import Highcharts from 'highcharts';
 
 export default function Home() {
-  return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>app/page.tsx</code>.
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    const {lastMessage} = useWebSocket("ws://localhost:8080", {
+        onOpen: () => console.log('opened'),
+        shouldReconnect: (closeEvent) => true,
+    });
+    const [cumulativeCounts, setCumulativeCounts] = useState<{ [id: number]: number }>({});
+    const [chartData, setChartData] = useState<CumulativeData[]>([]);
 
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
+    const apexConfig = createApexLineConfig(chartData);
+    const echartsConfig = createEChartsConfig(chartData);
+    const chartjsConfig = createLineChartConfig(chartData);
+
+    useEffect(() => {
+        if (lastMessage !== null) {
+            (lastMessage.data as Blob).arrayBuffer()
+                .then(buffer => {
+                    const packets = processPackets(buffer);
+                    const newCounts = {...cumulativeCounts};
+                    const newPoints: CumulativeData[] = [];
+
+                    packets.forEach(({tick, id}) => {
+                        newCounts[id] = (newCounts[id] || 0) + 1;
+                        newPoints.push({
+                            tick,
+                            ...newCounts
+                        });
+                    });
+
+                    setCumulativeCounts(newCounts);
+                    setChartData([...chartData, ...newPoints]);
+                });
+        }
+    }, [lastMessage]);
+
+
+    const highchartsConfig = useMemo(() =>
+            createHighchartsConfig(chartData),
+        [chartData]
+    );
+
+    return (
+        <div className={styles.page}>
+            <div style={{ height: '300px', marginBottom: '20px', width: '500px' }}>
+                <Line data={chartjsConfig.data} options={chartjsConfig.options} />
+            </div>
+            {/*<div style={{ width: '100%', height: '300px', marginBottom: '20px' }}>*/}
+            {/*    <ReactApexChart*/}
+            {/*        options={apexConfig}*/}
+            {/*        series={apexConfig.series}*/}
+            {/*        height={300}*/}
+            {/*        type="line"*/}
+            {/*    />*/}
+            {/*</div>*/}
+            {/*<div style={{ width: '100%', height: '300px', marginBottom: '20px' }}>*/}
+            {/*    <ReactECharts*/}
+            {/*        option={echartsConfig}*/}
+            {/*        style={{ height: '300px' }}*/}
+            {/*    />*/}
+            {/*</div>*/}
+            {/*<div style={{ width: '100%', height: '300px' }}>*/}
+            {/*    <HighchartsReact*/}
+            {/*        highcharts={Highcharts}*/}
+            {/*        options={highchartsConfig}*/}
+            {/*        updateArgs={[true, true, true]}*/}
+            {/*    />*/}
+            {/*</div>*/}
         </div>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+    );
 }
