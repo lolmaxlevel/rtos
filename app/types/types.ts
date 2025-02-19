@@ -1,4 +1,5 @@
-export interface CumulativeData {
-    tick: number;
-    [key: number]: number;
+export interface CumulativeSignals {
+    [tick: number]: {
+        [id: number]: number;
+    };
 }

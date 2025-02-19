@@ -1,13 +1,14 @@
 'use client'
 import styles from "./page.module.css";
+import {CumulativeSignals} from "@/app/types/types";
 import useWebSocket from "react-use-websocket";
 import {useEffect, useState, useMemo} from "react";
 import {processPackets} from "@/app/utils/packet";
 import {
     createLineConfig,
-    // createBarConfig,
-    // createHeatmapConfig,
-    // createPieConfig
+    createBarConfig,
+    createHeatmapConfig,
+    createPieConfig
 } from '@/app/configs/eChartsConfigs';
 import dynamic from 'next/dynamic';
 
@@ -19,15 +20,6 @@ interface TickSignals {
     };
 }
 
-interface TotalSignalCounts {
-    [id: number]: number;
-}
-
-interface CumulativeSignals {
-    [tick: number]: {
-        [id: number]: number;
-    };
-}
 
 export default function Home() {
     const {lastMessage} = useWebSocket("ws://localhost:8080", {
@@ -37,12 +29,6 @@ export default function Home() {
     const [tickSignals, setTickSignals] = useState<TickSignals>({});
     const [cumulativeSignals, setCumulativeSignals] = useState<CumulativeSignals>({});
 
-    const chartData = useMemo(() =>
-            Object.keys(cumulativeSignals).map(tick => ({
-                tick: Number(tick),
-                ...cumulativeSignals[Number(tick)]
-            }))
-        , [cumulativeSignals]);
 
     useEffect(() => {
         if (lastMessage !== null) {
@@ -76,35 +62,42 @@ export default function Home() {
 
     return (
         <div className={styles.page}>
-            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', padding: '20px', height: '100%', width: '100%'}}>
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '20px',
+                padding: '20px',
+                height: '100%',
+                width: '100%'
+            }}>
                 <div style={{height: '300px'}}>
                     <h3>Line Chart</h3>
                     <ReactECharts
-                        option={createLineConfig(chartData)}
+                        option={createLineConfig(cumulativeSignals)}
                         style={{height: '100%'}}
                     />
                 </div>
-                {/*<div style={{height: '300px'}}>*/}
-                {/*    <h3>Bar Chart</h3>*/}
-                {/*    <ReactECharts*/}
-                {/*        option={createBarConfig(chartData)}*/}
-                {/*        style={{height: '100%'}}*/}
-                {/*    />*/}
-                {/*</div>*/}
-                {/*<div style={{height: '300px'}}>*/}
-                {/*    <h3>Heatmap</h3>*/}
-                {/*    <ReactECharts*/}
-                {/*        option={createHeatmapConfig(chartData)}*/}
-                {/*        style={{height: '100%'}}*/}
-                {/*    />*/}
-                {/*</div>*/}
-                {/*<div style={{height: '300px'}}>*/}
-                {/*    <h3>Pie Chart</h3>*/}
-                {/*    <ReactECharts*/}
-                {/*        option={createPieConfig(chartData)}*/}
-                {/*        style={{height: '100%'}}*/}
-                {/*    />*/}
-                {/*</div>*/}
+                <div style={{height: '300px'}}>
+                    <h3>Bar Chart</h3>
+                    <ReactECharts
+                        option={createBarConfig(cumulativeSignals)}
+                        style={{height: '100%'}}
+                    />
+                </div>
+                <div style={{height: '300px'}}>
+                    <h3>Heatmap</h3>
+                    <ReactECharts
+                        option={createHeatmapConfig(cumulativeSignals)}
+                        style={{height: '100%'}}
+                    />
+                </div>
+                <div style={{height: '300px'}}>
+                    <h3>Pie Chart</h3>
+                    <ReactECharts
+                        option={createPieConfig(cumulativeSignals)}
+                        style={{height: '100%'}}
+                    />
+                </div>
             </div>
         </div>
     );

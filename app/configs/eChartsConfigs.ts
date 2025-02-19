@@ -1,13 +1,13 @@
 import type {EChartsOption} from 'echarts';
-import {CumulativeData} from '@/app/types/types';
 import {traceLabels} from '@/app/dict';
+import type {CumulativeSignals} from '@/app/types/types';
 
 export const COLORS = [
     "#8884d8", "#82ca9d", "#ffc658", "#ff7300", "#e8c3b9",
     "#1f77b4", "#ff6b6b", "#4ecdc4", "#45b7d1", "#96ceb4"
 ];
 
-export const createLineConfig = (chartData: CumulativeData[]): EChartsOption => ({
+export const createLineConfig = (chartData: CumulativeSignals): EChartsOption => ({
     color: COLORS,
     legend: {
         bottom: 0,
@@ -18,7 +18,6 @@ export const createLineConfig = (chartData: CumulativeData[]): EChartsOption => 
         axisPointer: {
             animation: false
         }
-
     },
     toolbox: {
         feature: {
@@ -39,80 +38,94 @@ export const createLineConfig = (chartData: CumulativeData[]): EChartsOption => 
     },
     series: Object.keys(traceLabels)
         .slice(0, 10)
-        .map((key, index) => ({
+        .map(key => ({
             name: traceLabels[+key],
             type: 'line',
             smooth: false,
             symbol: 'none',
-            data: chartData.map(point => [point.tick, point[+key] || 0])
+            data: Object.entries(chartData)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([tick, signals]) => [Number(tick), signals[+key] || 0])
         }))
 });
-//
-// export const createBarConfig = (chartData: CumulativeData[]): EChartsOption => ({
-//     tooltip: {
-//         trigger: 'axis'
-//     },
-//     xAxis: {
-//         type: 'category',
-//         data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
-//     },
-//     yAxis: {
-//         type: 'value'
-//     },
-//     series: [{
-//         type: 'bar',
-//         data: Object.keys(traceLabels).slice(0, 10)
-//             .map(key => chartData.reduce((sum, point) => sum + (point[+key] || 0), 0))
-//     }]
-// });
-//
-// export const createHeatmapConfig = (chartData: CumulativeData[]): EChartsOption => ({
-//     tooltip: {
-//         position: 'top'
-//     },
-//     grid: {
-//         height: '50%',
-//         top: '10%'
-//     },
-//     xAxis: {
-//         type: 'category',
-//         data: chartData.map(d => d.tick)
-//     },
-//     yAxis: {
-//         type: 'category',
-//         data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
-//     },
-//     visualMap: {
-//         min: 0,
-//         max: 10,
-//         calculable: true,
-//         orient: 'horizontal',
-//         left: 'center',
-//         bottom: '15%'
-//     },
-//     series: [{
-//         type: 'heatmap',
-//         data: chartData.flatMap((point, i) =>
-//             Object.keys(traceLabels).slice(0, 10)
-//                 .map((key, j) => [i, j, point[+key] || 0])
-//         )
-//     }]
-// });
-//
-// export const createPieConfig = (chartData: CumulativeData[]): EChartsOption => ({
-//     tooltip: {
-//         trigger: 'item'
-//     },
-//     legend: {
-//         orient: 'horizontal',
-//         bottom: 0
-//     },
-//     series: [{
-//         type: 'pie',
-//         radius: '50%',
-//         data: Object.keys(traceLabels).slice(0, 10).map(key => ({
-//             name: traceLabels[+key],
-//             value: chartData.reduce((sum, point) => sum + (point[+key] || 0), 0)
-//         }))
-//     }]
-// });
+
+export const createBarConfig = (chartData: CumulativeSignals): EChartsOption => {
+    const lastTick = Math.max(...Object.keys(chartData).map(Number));
+    return {
+        tooltip: {
+            trigger: 'axis'
+        },
+        xAxis: {
+            type: 'category',
+            data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
+        },
+        yAxis: {
+            type: 'value'
+        },
+        series: [{
+            type: 'bar',
+            data: Object.keys(traceLabels)
+                .slice(0, 10)
+                .map(key => chartData[lastTick]?.[+key] || 0)
+        }]
+    };
+};
+
+export const createHeatmapConfig = (chartData: CumulativeSignals): EChartsOption => ({
+    tooltip: {
+        position: 'top'
+    },
+    grid: {
+        height: '50%',
+        top: '10%'
+    },
+    xAxis: {
+        type: 'category',
+        data: Object.keys(chartData).map(tick => Number(tick)).sort((a, b) => a - b)
+    },
+    yAxis: {
+        type: 'category',
+        data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
+    },
+    visualMap: {
+        min: 0,
+        max: 10,
+        calculable: true,
+        orient: 'horizontal',
+        left: 'center',
+        bottom: '15%'
+    },
+    series: [{
+        type: 'heatmap',
+        data: Object.entries(chartData)
+            .sort(([a], [b]) => Number(a) - Number(b))
+            .flatMap(([tick, signals]) =>
+                Object.keys(traceLabels)
+                    .slice(0, 10)
+                    .map((key, j) => [Number(tick), j, signals[+key] || 0])
+            )
+    }]
+});
+
+export const createPieConfig = (chartData: CumulativeSignals): EChartsOption => ({
+    tooltip: {
+        trigger: 'item'
+    },
+    legend: {
+        orient: 'horizontal',
+        bottom: 0
+    },
+    series: [{
+        type: 'pie',
+        radius: '50%',
+        data: Object.keys(traceLabels)
+            .slice(0, 10)
+            .map(key => {
+                const lastTick = Math.max(...Object.keys(chartData).map(Number));
+                return {
+                    name: traceLabels[+key],
+                    value: chartData[lastTick]?.[+key] || 0
+                };
+            })
+    }]
+});
