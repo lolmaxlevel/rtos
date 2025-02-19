@@ -70,6 +70,7 @@ export default function Home() {
 
                 setTickSignals(newTickSignals);
                 setCumulativeSignals(newCumulativeSignals);
+                console.log(cumulativeSignals)
             });
         }
     }, [lastMessage]);
@@ -80,7 +81,7 @@ export default function Home() {
                 <div style={{height: '300px'}}>
                     <h3>Line Chart</h3>
                     <ReactECharts
-                        option={createLineConfig(chartData)}
+                        option={createLineConfig(tickSignals)}
                         style={{height: '100%'}}
                     />
                 </div>
