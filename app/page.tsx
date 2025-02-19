@@ -1,86 +1,111 @@
 'use client'
 import styles from "./page.module.css";
 import useWebSocket from "react-use-websocket";
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useState, useMemo} from "react";
 import {processPackets} from "@/app/utils/packet";
-import { createApexLineConfig } from '@/app/configs/apexChartConfigs';
-import { createEChartsConfig } from '@/app/configs/eChartsConfigs';
-import { createHighchartsConfig } from '@/app/configs/highchartsConfig';
-import { CumulativeData } from '@/app/types/types';
-import '@/app/configs/chartSetup';
-import { Line } from 'react-chartjs-2';
-import { createLineChartConfig } from '@/app/configs/chartConfigs';
-import ReactApexChart from 'react-apexcharts';
-import ReactECharts from 'echarts-for-react';
-import HighchartsReact from 'highcharts-react-official';
-import Highcharts from 'highcharts';
+import {
+    createLineConfig,
+    // createBarConfig,
+    // createHeatmapConfig,
+    // createPieConfig
+} from '@/app/configs/eChartsConfigs';
+import dynamic from 'next/dynamic';
+
+const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
+
+interface TickSignals {
+    [tick: number]: {
+        [id: number]: number;
+    };
+}
+
+interface TotalSignalCounts {
+    [id: number]: number;
+}
+
+interface CumulativeSignals {
+    [tick: number]: {
+        [id: number]: number;
+    };
+}
 
 export default function Home() {
     const {lastMessage} = useWebSocket("ws://localhost:8080", {
         onOpen: () => console.log('opened'),
         shouldReconnect: (closeEvent) => true,
     });
-    const [cumulativeCounts, setCumulativeCounts] = useState<{ [id: number]: number }>({});
-    const [chartData, setChartData] = useState<CumulativeData[]>([]);
+    const [tickSignals, setTickSignals] = useState<TickSignals>({});
+    const [cumulativeSignals, setCumulativeSignals] = useState<CumulativeSignals>({});
 
-    const apexConfig = createApexLineConfig(chartData);
-    const echartsConfig = createEChartsConfig(chartData);
-    const chartjsConfig = createLineChartConfig(chartData);
+    const chartData = useMemo(() =>
+            Object.keys(cumulativeSignals).map(tick => ({
+                tick: Number(tick),
+                ...cumulativeSignals[Number(tick)]
+            }))
+        , [cumulativeSignals]);
 
     useEffect(() => {
         if (lastMessage !== null) {
-            (lastMessage.data as Blob).arrayBuffer()
-                .then(buffer => {
-                    const packets = processPackets(buffer);
-                    const newCounts = {...cumulativeCounts};
-                    const newPoints: CumulativeData[] = [];
+            (lastMessage.data as Blob).arrayBuffer().then(buffer => {
+                const packets = processPackets(buffer);
+                const newTickSignals = {...tickSignals};
+                const newCumulativeSignals = {...cumulativeSignals};
 
-                    packets.forEach(({tick, id}) => {
-                        newCounts[id] = (newCounts[id] || 0) + 1;
-                        newPoints.push({
-                            tick,
-                            ...newCounts
-                        });
-                    });
+                packets.forEach(({tick, id}) => {
+                    // Update current tick signals
+                    if (!newTickSignals[tick]) {
+                        newTickSignals[tick] = {};
+                    }
+                    newTickSignals[tick][id] = (newTickSignals[tick][id] || 0) + 1;
 
-                    setCumulativeCounts(newCounts);
-                    setChartData([...chartData, ...newPoints]);
+                    // Update cumulative signals
+                    if (!newCumulativeSignals[tick]) {
+                        const prevTick = tick - 1;
+                        newCumulativeSignals[tick] = prevTick >= 0
+                            ? {...newCumulativeSignals[prevTick]}
+                            : {};
+                    }
+                    newCumulativeSignals[tick][id] = (newCumulativeSignals[tick][id] || 0) + 1;
                 });
+
+                setTickSignals(newTickSignals);
+                setCumulativeSignals(newCumulativeSignals);
+            });
         }
     }, [lastMessage]);
 
-
-    const highchartsConfig = useMemo(() =>
-            createHighchartsConfig(chartData),
-        [chartData]
-    );
-
     return (
         <div className={styles.page}>
-            <div style={{ height: '300px', marginBottom: '20px', width: '500px' }}>
-                <Line data={chartjsConfig.data} options={chartjsConfig.options} />
+            <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', padding: '20px', height: '100%', width: '100%'}}>
+                <div style={{height: '300px'}}>
+                    <h3>Line Chart</h3>
+                    <ReactECharts
+                        option={createLineConfig(chartData)}
+                        style={{height: '100%'}}
+                    />
+                </div>
+                {/*<div style={{height: '300px'}}>*/}
+                {/*    <h3>Bar Chart</h3>*/}
+                {/*    <ReactECharts*/}
+                {/*        option={createBarConfig(chartData)}*/}
+                {/*        style={{height: '100%'}}*/}
+                {/*    />*/}
+                {/*</div>*/}
+                {/*<div style={{height: '300px'}}>*/}
+                {/*    <h3>Heatmap</h3>*/}
+                {/*    <ReactECharts*/}
+                {/*        option={createHeatmapConfig(chartData)}*/}
+                {/*        style={{height: '100%'}}*/}
+                {/*    />*/}
+                {/*</div>*/}
+                {/*<div style={{height: '300px'}}>*/}
+                {/*    <h3>Pie Chart</h3>*/}
+                {/*    <ReactECharts*/}
+                {/*        option={createPieConfig(chartData)}*/}
+                {/*        style={{height: '100%'}}*/}
+                {/*    />*/}
+                {/*</div>*/}
             </div>
-            {/*<div style={{ width: '100%', height: '300px', marginBottom: '20px' }}>*/}
-            {/*    <ReactApexChart*/}
-            {/*        options={apexConfig}*/}
-            {/*        series={apexConfig.series}*/}
-            {/*        height={300}*/}
-            {/*        type="line"*/}
-            {/*    />*/}
-            {/*</div>*/}
-            {/*<div style={{ width: '100%', height: '300px', marginBottom: '20px' }}>*/}
-            {/*    <ReactECharts*/}
-            {/*        option={echartsConfig}*/}
-            {/*        style={{ height: '300px' }}*/}
-            {/*    />*/}
-            {/*</div>*/}
-            {/*<div style={{ width: '100%', height: '300px' }}>*/}
-            {/*    <HighchartsReact*/}
-            {/*        highcharts={Highcharts}*/}
-            {/*        options={highchartsConfig}*/}
-            {/*        updateArgs={[true, true, true]}*/}
-            {/*    />*/}
-            {/*</div>*/}
         </div>
     );
 }
