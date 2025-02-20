@@ -2,7 +2,7 @@
 import styles from "./page.module.css";
 import {CumulativeSignals} from "@/app/types/types";
 import useWebSocket from "react-use-websocket";
-import {useEffect, useState, useMemo} from "react";
+import {useEffect, useState, useMemo, useRef} from "react";
 import {processPackets} from "@/app/utils/packet";
 import {
     createLineConfig,
@@ -13,52 +13,52 @@ import {
 import dynamic from 'next/dynamic';
 
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
-
-interface TickSignals {
-    [tick: number]: {
-        [id: number]: number;
-    };
-}
-
+const UPDATE_INTERVAL = 500; // 1 second
 
 export default function Home() {
     const {lastMessage} = useWebSocket("ws://localhost:8080", {
         onOpen: () => console.log('opened'),
         shouldReconnect: (closeEvent) => true,
     });
-    const [tickSignals, setTickSignals] = useState<TickSignals>({});
+
     const [cumulativeSignals, setCumulativeSignals] = useState<CumulativeSignals>({});
+    const bufferedSignals = useRef<CumulativeSignals>({});
 
-
+    // Process incoming data without updating state
     useEffect(() => {
         if (lastMessage !== null) {
             (lastMessage.data as Blob).arrayBuffer().then(buffer => {
                 const packets = processPackets(buffer);
-                const newTickSignals = {...tickSignals};
-                const newCumulativeSignals = {...cumulativeSignals};
 
                 packets.forEach(({tick, id}) => {
-                    // Update current tick signals
-                    if (!newTickSignals[tick]) {
-                        newTickSignals[tick] = {};
-                    }
-                    newTickSignals[tick][id] = (newTickSignals[tick][id] || 0) + 1;
-
-                    // Update cumulative signals
-                    if (!newCumulativeSignals[tick]) {
+                    if (!bufferedSignals.current[tick]) {
                         const prevTick = tick - 1;
-                        newCumulativeSignals[tick] = prevTick >= 0
-                            ? {...newCumulativeSignals[prevTick]}
+                        bufferedSignals.current[tick] = prevTick >= 0
+                            ? {...bufferedSignals.current[prevTick]}
                             : {};
                     }
-                    newCumulativeSignals[tick][id] = (newCumulativeSignals[tick][id] || 0) + 1;
+                    bufferedSignals.current[tick][id] = (bufferedSignals.current[tick][id] || 0) + 1;
                 });
-
-                setTickSignals(newTickSignals);
-                setCumulativeSignals(newCumulativeSignals);
             });
         }
     }, [lastMessage]);
+
+    // Update state once per second
+    useEffect(() => {
+        const intervalId = setInterval(() => {
+            setCumulativeSignals({...bufferedSignals.current});
+        }, UPDATE_INTERVAL);
+
+        return () => clearInterval(intervalId);
+    }, []);
+
+    // Memoize chart configs
+    const chartConfigs = useMemo(() => ({
+        line: createLineConfig(cumulativeSignals),
+        bar: createBarConfig(cumulativeSignals),
+        heatmap: createHeatmapConfig(cumulativeSignals),
+        pie: createPieConfig(cumulativeSignals)
+    }), [cumulativeSignals]);
 
     return (
         <div className={styles.page}>
@@ -70,34 +70,17 @@ export default function Home() {
                 height: '100%',
                 width: '100%'
             }}>
-                <div style={{height: '300px'}}>
-                    <h3>Line Chart</h3>
-                    <ReactECharts
-                        option={createLineConfig(cumulativeSignals)}
-                        style={{height: '100%'}}
-                    />
-                </div>
-                <div style={{height: '300px'}}>
-                    <h3>Bar Chart</h3>
-                    <ReactECharts
-                        option={createBarConfig(cumulativeSignals)}
-                        style={{height: '100%'}}
-                    />
-                </div>
-                <div style={{height: '300px'}}>
-                    <h3>Heatmap</h3>
-                    <ReactECharts
-                        option={createHeatmapConfig(cumulativeSignals)}
-                        style={{height: '100%'}}
-                    />
-                </div>
-                <div style={{height: '300px'}}>
-                    <h3>Pie Chart</h3>
-                    <ReactECharts
-                        option={createPieConfig(cumulativeSignals)}
-                        style={{height: '100%'}}
-                    />
-                </div>
+                {[
+                    { title: 'Line Chart', config: chartConfigs.line },
+                    { title: 'Bar Chart', config: chartConfigs.bar },
+                    { title: 'Heatmap', config: chartConfigs.heatmap },
+                    { title: 'Pie Chart', config: chartConfigs.pie }
+                ].map(({ title, config }) => (
+                    <div key={title} style={{height: '300px'}}>
+                        <h3>{title}</h3>
+                        <ReactECharts option={config} style={{height: '100%'}} />
+                    </div>
+                ))}
             </div>
         </div>
     );
