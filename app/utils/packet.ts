@@ -1,4 +1,3 @@
-// app/utils/packet.ts
 export const PAYLOAD_SIZE = 5;
 
 export interface PacketData {

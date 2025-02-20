@@ -11,7 +11,7 @@ export const createLineConfig = (chartData: CumulativeSignals): EChartsOption =>
     color: COLORS,
     legend: {
         bottom: 0,
-        data: Object.values(traceLabels).slice(0, 10)
+        data: Object.keys(traceLabels).map(k => traceLabels[+k])
     },
     tooltip: {
         trigger: 'axis',
@@ -37,7 +37,6 @@ export const createLineConfig = (chartData: CumulativeSignals): EChartsOption =>
         min: 0,
     },
     series: Object.keys(traceLabels)
-        .slice(0, 10)
         .map(key => ({
             name: traceLabels[+key],
             type: 'line',
@@ -57,7 +56,7 @@ export const createBarConfig = (chartData: CumulativeSignals): EChartsOption => 
         },
         xAxis: {
             type: 'category',
-            data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
+            data: Object.keys(traceLabels).map(k => traceLabels[+k])
         },
         yAxis: {
             type: 'value'
@@ -65,7 +64,6 @@ export const createBarConfig = (chartData: CumulativeSignals): EChartsOption => 
         series: [{
             type: 'bar',
             data: Object.keys(traceLabels)
-                .slice(0, 10)
                 .map(key => chartData[lastTick]?.[+key] || 0)
         }]
     };
@@ -85,7 +83,7 @@ export const createHeatmapConfig = (chartData: CumulativeSignals): EChartsOption
     },
     yAxis: {
         type: 'category',
-        data: Object.keys(traceLabels).slice(0, 10).map(k => traceLabels[+k])
+        data: Object.keys(traceLabels).map(k => traceLabels[+k])
     },
     visualMap: {
         min: 0,
@@ -101,7 +99,6 @@ export const createHeatmapConfig = (chartData: CumulativeSignals): EChartsOption
             .sort(([a], [b]) => Number(a) - Number(b))
             .flatMap(([tick, signals]) =>
                 Object.keys(traceLabels)
-                    .slice(0, 10)
                     .map((key, j) => [Number(tick), j, signals[+key] || 0])
             )
     }]
@@ -119,7 +116,6 @@ export const createPieConfig = (chartData: CumulativeSignals): EChartsOption => 
         type: 'pie',
         radius: '50%',
         data: Object.keys(traceLabels)
-            .slice(0, 10)
             .map(key => {
                 const lastTick = Math.max(...Object.keys(chartData).map(Number));
                 return {
