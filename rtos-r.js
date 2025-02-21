@@ -33,7 +33,7 @@ wss.on('connection', function connection(ws) {
     ws.send(buffer.buffer);
 
     tickCount++; // Increment tick count
-  }, 1000); // Send every second
+  }, 40); // Send every second
 
     ws.on('close', function close() {
         clearInterval(timer);
