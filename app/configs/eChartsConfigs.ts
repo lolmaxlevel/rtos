@@ -1,36 +1,37 @@
 import type {EChartsOption} from 'echarts';
 import {traceLabels} from '@/app/dict';
-import type {CumulativeSignals} from '@/app/types/types';
+import {CumulativeSignals} from "@/app/types/types";
 
 export const createLineConfig = (chartData: CumulativeSignals, selectedIds: number[]): EChartsOption => {
-    // If no data or no selected filters, return empty config
-    if (Object.keys(chartData).length === 0) {
-        return {
-            xAxis: { type: 'value', min: 0, name: 'Tick' },
-            yAxis: { type: 'value', min: 0 },
-            series: [{
-                type: 'line',
-                smooth: false,
-                symbol: 'none',
-                data: []
-            }]
-        };
-    }
 
     return {
         tooltip: {
             trigger: 'axis',
-            axisPointer: { animation: false }
+            axisPointer: {animation: false},
+            enterable: true,
+            className: 'tooltip'
+        },
+        grid: {
+            left: '0%',
+            right: '22%',
+            top: '5%',
+            bottom: '15%',
+            containLabel: true
         },
         legend: {
-            orient: 'horizontal',
-            bottom: 0,
-            show: true
+            animation: false,
+            type: 'scroll',
+            orient: 'vertical',
+            right: 0,
+            top: 20,
+            show: true,
+            data: selectedIds.map(id => traceLabels[id]), // Explicitly define legend data
+            pageButtonPosition: 'end',
+            selector: false
         },
         toolbox: {
             feature: {
-                dataZoom: { yAxisIndex: 'none' },
-                restore: {}
+                restore: {},
             }
         },
         xAxis: {
@@ -42,38 +43,69 @@ export const createLineConfig = (chartData: CumulativeSignals, selectedIds: numb
             type: 'value',
             min: 0
         },
-        series: selectedIds.map(id => ({
+
+        dataZoom: [
+            {
+                type: 'slider',
+                xAxisIndex: 0,
+                filterMode: 'none'
+            },
+            {
+                type: 'inside',
+                xAxisIndex: 0,
+                filterMode: 'none'
+            },
+            {
+                type: 'inside',
+                yAxisIndex: 0,
+                filterMode: 'none'
+            }
+        ],
+
+        dataset: [{
+            id: 'dataset',
+            source: selectedIds.length == 0 ? [] : Array.from(chartData.entries()).map(([tick, signals]) => {
+                const data: Record<string, number> = {tick};
+                // Создаем Map для быстрого доступа к меткам
+                const selectedLabels = new Map(
+                    selectedIds.map(id => [id, traceLabels[id]])
+                );
+                // Используем for...of вместо forEach
+                for (const [id, label] of selectedLabels) {
+                    data[label] = signals.get(id) ?? 0;
+                }
+                return data;
+            })
+        }],
+
+        series: selectedIds.length ? selectedIds.map(id => ({
+            sampling: 'average',
             name: traceLabels[id],
             type: 'line',
             smooth: false,
             symbol: 'none',
-            data: Object.entries(chartData)
-                .map(([tick, signals]) => [Number(tick), signals[id] || 0])
-        }))
+            datasetId: 'dataset',
+            encode: { x: 'tick', y: traceLabels[id] },
+        })) : []
     };
 };
 
-export const createBarConfig = (chartData: CumulativeSignals): EChartsOption => {
-    const lastTick = Math.max(...Object.keys(chartData).map(Number));
-    const activeSignals = chartData[lastTick] || {};
-    const activeIds = Object.keys(activeSignals);
-
-    // Return empty config if no data
-    if (activeIds.length === 0) {
+export const createBarConfig = (signals: Map<number, number>, selectedIds: number[]): EChartsOption => {
+    if (signals.size === 0) {
         return {
-            xAxis: { type: 'category', data: [] },
-            yAxis: { type: 'value' },
-            series: [{ type: 'bar', data: [] }]
+            xAxis: {type: 'category', data: []},
+            yAxis: {type: 'value'},
+            series: [{type: 'bar', data: []}]
         };
     }
 
-    const data = activeIds.map(key => ({
-        name: traceLabels[Number(key)],
-        value: activeSignals[Number(key)] || 0
+    const data = selectedIds.map(id => ({
+        name: traceLabels[id],
+        value: signals.get(id) || 0
     }));
 
     return {
-        tooltip: { trigger: 'axis' },
+        tooltip: {trigger: 'axis'},
         legend: {
             orient: 'horizontal',
             bottom: 0,
@@ -81,23 +113,24 @@ export const createBarConfig = (chartData: CumulativeSignals): EChartsOption => 
         },
         xAxis: {
             type: 'category',
-            data: data.map(item => item.name)
+            data: data.map(item => item.name),
         },
-        yAxis: { type: 'value' },
-        series: [{
-            type: 'bar',
-            name: 'Value',
-            data: data.map(item => item.value)
-        }]
+        yAxis: {type: 'value'},
+        series: [
+            {
+                data: data.map(item => ({
+                    name: item.name,
+                    value: item.value
+                })),
+                type: 'bar'
+            }
+        ]
     };
 };
 
-export const createPieConfig = (chartData: CumulativeSignals): EChartsOption => {
-    const lastTick = Math.max(...Object.keys(chartData).map(Number));
-    const activeSignals = chartData[lastTick] || {};
+export const createPieConfig = (signals: Map<number, number>, selectedIds: number[]): EChartsOption => {
 
-    // Return empty config if no data
-    if (Object.keys(activeSignals).length === 0) {
+    if (signals.size === 0) {
         return {
             series: [{
                 type: 'pie',
@@ -107,16 +140,23 @@ export const createPieConfig = (chartData: CumulativeSignals): EChartsOption => 
         };
     }
 
-    const data = Object.keys(activeSignals).map(key => ({
-        name: traceLabels[Number(key)],
-        value: activeSignals[Number(key)] || 0
-    }));
+    const data = selectedIds
+        .filter(id => signals.has(id))
+        .map(id => ({
+            name: traceLabels[id],
+            value: signals.get(id)
+        }));
 
     return {
-        tooltip: { trigger: 'item' },
+        tooltip: {
+            trigger: 'item',
+            formatter: '{a} <br/>{b} : {c} ({d}%)'
+        },
+
         legend: {
-            orient: 'horizontal',
-            bottom: 0,
+            type: "scroll",
+            orient: 'vertical',
+            right: 10,
             show: true
         },
         series: [{

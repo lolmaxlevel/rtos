@@ -17,7 +17,7 @@ wss.on('connection', function connection(ws) {
   const timer = setInterval(() => {
     let buffer = new Uint8Array(PAYLOAD_SIZE * MAX_IDS);
     for (let i = 0; i < MAX_IDS; i++) {
-      const id = Math.floor(Math.random() * 50) + 1;
+      const id = Math.floor(Math.random() * 84) + 1;
 
       // Write tickCount into the buffer
       buffer[i * PAYLOAD_SIZE] = (tickCount >> 24) & 0xFF; // Most significant byte

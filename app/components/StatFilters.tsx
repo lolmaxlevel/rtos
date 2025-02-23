@@ -6,8 +6,10 @@ import {
     Chip,
     TextField,
     Button,
-    Stack
+    Stack,
+    ButtonGroup
 } from '@mui/material';
+import {signalGroups} from "@/app/groups";
 
 interface StatFiltersProps {
     selectedIds: number[];
@@ -31,6 +33,7 @@ export default function StatFilters({ selectedIds, onChange }: StatFiltersProps)
                     multiple
                     options={options}
                     value={selectedOptions}
+                    groupBy={(option) => option.label[0].toUpperCase()}
                     getOptionLabel={(option) => option.label}
                     onChange={(_, newValue) => {
                         onChange(newValue.map(v => v.id));
@@ -54,14 +57,24 @@ export default function StatFilters({ selectedIds, onChange }: StatFiltersProps)
                             />
                         ))
                     }
-                    slotProps={{maxHeight: 200}}
                 />
-                <Button
-                    variant="outlined"
-                    onClick={() => onChange(Object.keys(traceLabels).map(Number))}
-                >
-                    Select All
-                </Button>
+                <ButtonGroup>
+                        <Button
+                            variant="outlined"
+                            onClick={() => onChange(Object.keys(traceLabels).map(Number))}
+                        >
+                            Select All
+                        </Button>
+                        {Object.entries(signalGroups).map(([groupName, ids]) => (
+                            <Button
+                                key={groupName}
+                                variant="outlined"
+                                onClick={() => onChange(ids)}
+                            >
+                                {groupName}
+                            </Button>
+                        ))}
+                    </ButtonGroup>
             </Stack>
         </Box>
     );

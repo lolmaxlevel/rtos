@@ -12,13 +12,13 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@mui/material": "^6.4.5",
-    "echarts": "^5.6.0",
-    "echarts-for-react": "^3.0.2",
+    "echarts": "5.6.0",
+    "echarts-for-react": "3.0.2",
+    "@kbox-labs/react-echarts": "^1.4.2",
     "next": "15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-use-websocket": "^4.13.0",
-    "recharts": "^2.15.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

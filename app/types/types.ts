@@ -1,5 +1,1 @@
-export interface CumulativeSignals {
-    [tick: number]: {
-        [id: number]: number;
-    };
-}
+export type CumulativeSignals = Map<number, Map<number, number>>;
