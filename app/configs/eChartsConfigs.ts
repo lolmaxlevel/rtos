@@ -1,11 +1,40 @@
 import type {EChartsOption} from 'echarts';
 import {traceLabels} from '@/app/dict';
-import {CumulativeSignals} from "@/app/types/types";
+import {SignalMap} from "@/app/types/types";
 
-export const createLineConfig = (chartData: CumulativeSignals, selectedIds: number[]): EChartsOption => {
+const createEmptyConfig = (type: 'bar' | 'pie'): EChartsOption => {
+    if (type === 'bar') {
+        return {
+            xAxis: {type: 'category', data: []},
+            yAxis: {type: 'value'},
+            series: [{type: 'bar', data: []}]
+        };
+    }
+    return {
+        series: [{
+            type: 'pie',
+            radius: '50%',
+            data: []
+        }]
+    };
+};
+
+const prepareChartData = (signals: SignalMap, selectedIds: number[], lastTick: number) => {
+    return selectedIds.map(id => ({
+        name: traceLabels[id],
+        value: signals.get(lastTick)?.get(id) || 0
+    }));
+};
+
+export const createLineConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+    const ticks = Array.from(signals.keys());
+    if (ticks.length === 0) return createEmptyConfig('bar');
+
+    const minTick = Math.min(...ticks);
 
     return {
         tooltip: {
+            confine: true,
             trigger: 'axis',
             axisPointer: {animation: false},
             enterable: true,
@@ -19,31 +48,27 @@ export const createLineConfig = (chartData: CumulativeSignals, selectedIds: numb
             containLabel: true
         },
         legend: {
-            animation: false,
             type: 'scroll',
             orient: 'vertical',
             right: 0,
             top: 20,
             show: true,
-            data: selectedIds.map(id => traceLabels[id]), // Explicitly define legend data
             pageButtonPosition: 'end',
             selector: false
         },
         toolbox: {
             feature: {
-                restore: {},
+                restore: {}
             }
         },
         xAxis: {
             type: 'value',
-            min: 0,
-            name: 'Tick'
+            name: 'Tick',
+            min: minTick
         },
         yAxis: {
-            type: 'value',
-            min: 0
+            type: 'value'
         },
-
         dataZoom: [
             {
                 type: 'slider',
@@ -61,48 +86,59 @@ export const createLineConfig = (chartData: CumulativeSignals, selectedIds: numb
                 filterMode: 'none'
             }
         ],
-
         dataset: [{
             id: 'dataset',
-            source: selectedIds.length == 0 ? [] : Array.from(chartData.entries()).map(([tick, signals]) => {
+            source: selectedIds.length === 0 ? [] : Array.from(signals.entries()).map(([tick, tickSignals]) => {
                 const data: Record<string, number> = {tick};
-                // Создаем Map для быстрого доступа к меткам
-                const selectedLabels = new Map(
-                    selectedIds.map(id => [id, traceLabels[id]])
-                );
-                // Используем for...of вместо forEach
+                const selectedLabels = new Map(selectedIds.map(id => [id, traceLabels[id]]));
+
                 for (const [id, label] of selectedLabels) {
-                    data[label] = signals.get(id) ?? 0;
+                    if (isCumulative) {
+                        let sum = 0;
+                        for (const [t, s] of signals) {
+                            if (t <= tick) {
+                                sum += s.get(id) ?? 0;
+                            }
+                        }
+                        data[label] = sum;
+                    } else {
+                        data[label] = tickSignals.get(id) ?? 0;
+                    }
                 }
                 return data;
             })
         }],
-
-        series: selectedIds.length ? selectedIds.map(id => ({
+        series: selectedIds.map(id => ({
+            step: 'start',
             sampling: 'average',
             name: traceLabels[id],
             type: 'line',
             smooth: false,
             symbol: 'none',
             datasetId: 'dataset',
-            encode: { x: 'tick', y: traceLabels[id] },
-        })) : []
+            encode: {x: 'tick', y: traceLabels[id]}
+        }))
     };
 };
 
-export const createBarConfig = (signals: Map<number, number>, selectedIds: number[]): EChartsOption => {
-    if (signals.size === 0) {
-        return {
-            xAxis: {type: 'category', data: []},
-            yAxis: {type: 'value'},
-            series: [{type: 'bar', data: []}]
-        };
-    }
+export const createBarConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+    if (signals.size === 0) return createEmptyConfig('bar');
 
-    const data = selectedIds.map(id => ({
-        name: traceLabels[id],
-        value: signals.get(id) || 0
-    }));
+    const lastTick = Math.max(...Array.from(signals.keys()));
+    const data = selectedIds.map(id => {
+        let value = 0;
+        if (isCumulative) {
+            for (const [_, tickSignals] of signals) {
+                value += tickSignals.get(id) || 0;
+            }
+        } else {
+            value = signals.get(lastTick)?.get(id) || 0;
+        }
+        return {
+            name: traceLabels[id],
+            value: value
+        };
+    });
 
     return {
         tooltip: {trigger: 'axis'},
@@ -113,46 +149,40 @@ export const createBarConfig = (signals: Map<number, number>, selectedIds: numbe
         },
         xAxis: {
             type: 'category',
-            data: data.map(item => item.name),
+            data: data.map(item => item.name)
         },
         yAxis: {type: 'value'},
-        series: [
-            {
-                data: data.map(item => ({
-                    name: item.name,
-                    value: item.value
-                })),
-                type: 'bar'
-            }
-        ]
+        series: [{
+            data,
+            type: 'bar',
+            realtimeSort: true
+        }]
     };
 };
 
-export const createPieConfig = (signals: Map<number, number>, selectedIds: number[]): EChartsOption => {
+export const createPieConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+    if (signals.size === 0) return createEmptyConfig('pie');
 
-    if (signals.size === 0) {
-        return {
-            series: [{
-                type: 'pie',
-                radius: '50%',
-                data: []
-            }]
-        };
-    }
+    const lastTick = Math.max(...Array.from(signals.keys()));
+    const data = prepareChartData(signals, selectedIds, lastTick);
 
-    const data = selectedIds
-        .filter(id => signals.has(id))
-        .map(id => ({
-            name: traceLabels[id],
-            value: signals.get(id)
-        }));
+    const filteredData = isCumulative
+        ? data.filter(item => {
+            const value = Array.from(signals.values()).reduce((sum, tickSignals) =>
+                sum + (tickSignals.get(selectedIds[data.indexOf(item)]) || 0), 0);
+            return value > 0;
+        }).map(item => ({
+            ...item,
+            value: Array.from(signals.values()).reduce((sum, tickSignals) =>
+                sum + (tickSignals.get(selectedIds[data.indexOf(item)]) || 0), 0)
+        }))
+        : data.filter(item => item.value > 0);
 
     return {
         tooltip: {
             trigger: 'item',
             formatter: '{a} <br/>{b} : {c} ({d}%)'
         },
-
         legend: {
             type: "scroll",
             orient: 'vertical',
@@ -163,7 +193,7 @@ export const createPieConfig = (signals: Map<number, number>, selectedIds: numbe
             name: 'Statistics',
             type: 'pie',
             radius: '50%',
-            data: data
+            data: filteredData
         }]
     };
 };
