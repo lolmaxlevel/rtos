@@ -84,4 +84,7 @@ export const traceLabels: { [key: number]: string } = {
     82: "Stream Buffer Send",
     83: "Stream Buffer Send Failed",
     84: "Stream Buffer Send from ISR",
+    94: "start",
+    95: "end",
+    121: "active"
 };

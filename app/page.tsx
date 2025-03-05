@@ -1,12 +1,13 @@
 'use client'
-import {ThemeProvider, createTheme, Switch} from '@mui/material';
+import {ThemeProvider, createTheme} from '@mui/material';
 import {Box, Container, Grid, Paper, Typography} from '@mui/material';
 import useWebSocket from "react-use-websocket";
 import {useEffect, useState, useMemo, useRef} from "react";
 import {SignalMap} from "@/app/types/types";
 import {processPackets} from "@/app/utils/packet";
-import {createLineConfig, createBarConfig, createPieConfig} from '@/app/configs/eChartsConfigs';
+import {createLineConfig} from '@/app/configs/eChartsConfigs';
 import StatFilters from '@/app/components/StatFilters';
+import HandleFilters from '@/app/components/HandleFilters';
 import dynamic from 'next/dynamic';
 
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
@@ -24,8 +25,6 @@ const theme = createTheme({
 type ChartConfig = {
     title: string;
     config: any;
-    cumulative: boolean;
-    setCumulative: (value: boolean) => void;
 };
 
 export default function Home() {
@@ -37,15 +36,13 @@ export default function Home() {
     const [signals, setSignals] = useState<SignalMap>(new Map());
     const bufferedSignals = useRef<SignalMap>(new Map());
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
+    const [selectedHandles, setSelectedHandles] = useState<number[]>([]);
     const [shouldNotMerge, setShouldNotMerge] = useState(false);
 
-    const [chartStates, setChartStates] = useState({
-        line: true,
-        bar: false,
-        pie: false
-    });
-
     // Process incoming WebSocket data
+    const activeHandles = useRef(new Set<number>());
+
+// Then update the packet processing logic:
     useEffect(() => {
         if (lastMessage === null) return;
 
@@ -53,15 +50,42 @@ export default function Home() {
             const packets = processPackets(buffer);
             if (packets.length === 0) return;
 
-            const currentTick = packets[0].tick;
-            const tickSignals = bufferedSignals.current.get(currentTick) || new Map();
-
+            // Process each packet
             packets.forEach(packet => {
-                const currentCount = tickSignals.get(packet.id) || 0;
-                tickSignals.set(packet.id, currentCount + 1);
-            });
+                const tick = packet.tickCount;
+                const handle = packet.handle;
 
-            bufferedSignals.current.set(currentTick, tickSignals);
+                // Get or create tick map
+                let tickMap = bufferedSignals.current.get(tick) || new Map();
+                bufferedSignals.current.set(tick, tickMap);
+
+                // Get or create handle map for this tick
+                let handleSignals = tickMap.get(handle) || new Map();
+                tickMap.set(handle, handleSignals);
+
+                // Handle special case for start/end signals
+                if (packet.id === 94 || packet.id === 95) {
+                    if (packet.id === 94) {
+                        // Start signal
+                        handleSignals.set(121, 1);
+                        activeHandles.current.add(handle);
+                    } else if (packet.id === 95) {
+                        // End signal
+                        handleSignals.set(121, 0);
+                        activeHandles.current.delete(handle);
+                    }
+                    // console.log(packet.id, packet.tickCount, packet.handle);
+                }
+                console.log(packet.id, packet.tickCount, packet.handle);
+                for (const activeHandle of activeHandles.current) {
+                    // Get or create handle map for this tick if it doesn't exist yet
+                    let activeHandleSignals = tickMap.get(activeHandle) || new Map();
+                    tickMap.set(activeHandle, activeHandleSignals);
+
+                    // Set signal 121 to 1 for this active handle
+                    activeHandleSignals.set(121, 1);
+                }
+            });
         });
     }, [lastMessage]);
 
@@ -74,39 +98,43 @@ export default function Home() {
         return () => clearInterval(intervalId);
     }, []);
 
+    // Find all available handles
+    const availableHandles = useMemo(() => {
+        const handles = new Set<number>();
+        for (const tickMap of signals.values()) {
+            for (const handle of tickMap.keys()) {
+                handles.add(handle);
+            }
+        }
+        return Array.from(handles).sort((a, b) => a - b);
+    }, [signals]);
+
+    // Initialize selected handles with all available handles
+    useEffect(() => {
+        if (availableHandles.length > 0 && selectedHandles.length === 0) {
+            setSelectedHandles(availableHandles);
+        }
+    }, [availableHandles, selectedHandles]);
+
     // Little hack to prevent chart caching
     useEffect(() => {
         setShouldNotMerge(true);
         const timer = setTimeout(() => setShouldNotMerge(false), 100);
         return () => clearTimeout(timer);
-    }, [selectedIds]);
+    }, [selectedIds, selectedHandles]);
 
     // Prepare chart configurations
     const chartConfigs = useMemo(() => ({
-        line: createLineConfig(signals, selectedIds, chartStates.line),
-        bar: createBarConfig(signals, selectedIds, chartStates.bar),
-        pie: createPieConfig(signals, selectedIds, chartStates.pie)
-    }), [signals, selectedIds, chartStates.line, chartStates.bar, chartStates.pie]);
+        line: createLineConfig(signals, selectedIds, selectedHandles),
+        // bar: createBarConfig(signals, selectedIds, selectedHandles),
+        // pie: createPieConfig(signals, selectedIds, selectedHandles)
+    }), [signals, selectedIds, selectedHandles]);
 
     const charts: ChartConfig[] = [
         {
             title: 'Line Chart',
-            config: chartConfigs.line,
-            cumulative: chartStates.line,
-            setCumulative: (value) => setChartStates(prev => ({...prev, line: value}))
+            config: chartConfigs.line
         },
-        {
-            title: 'Bar Chart',
-            config: chartConfigs.bar,
-            cumulative: chartStates.bar,
-            setCumulative: (value) => setChartStates(prev => ({...prev, bar: value}))
-        },
-        {
-            title: 'Pie Chart',
-            config: chartConfigs.pie,
-            cumulative: chartStates.pie,
-            setCumulative: (value) => setChartStates(prev => ({...prev, pie: value}))
-        }
     ];
 
     return (
@@ -118,9 +146,14 @@ export default function Home() {
                             selectedIds={selectedIds}
                             onChange={setSelectedIds}
                         />
+                        <HandleFilters
+                            availableHandles={availableHandles}
+                            selectedHandles={selectedHandles}
+                            onChange={setSelectedHandles}
+                        />
                     </Grid>
                     <Grid container spacing={2}>
-                        {charts.map(({title, config, cumulative, setCumulative}) => (
+                        {charts.map(({title, config}) => (
                             <Grid item xs={12} md={6} key={title}>
                                 <Paper sx={{height: '400px', p: 2}}>
                                     <Box sx={{
@@ -130,14 +163,6 @@ export default function Home() {
                                         mb: 1
                                     }}>
                                         <Typography variant="h6">{title}</Typography>
-                                        <Box sx={{display: 'flex', alignItems: 'center', gap: 1}}>
-                                            <Typography>Per Tick</Typography>
-                                            <Switch
-                                                checked={cumulative}
-                                                onChange={(e) => setCumulative(e.target.checked)}
-                                            />
-                                            <Typography>Cumulative</Typography>
-                                        </Box>
                                     </Box>
                                     <Box sx={{height: 'calc(100% - 40px)'}}>
                                         <ReactECharts

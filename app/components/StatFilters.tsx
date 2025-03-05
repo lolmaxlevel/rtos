@@ -33,7 +33,6 @@ export default function StatFilters({ selectedIds, onChange }: StatFiltersProps)
                     multiple
                     options={options}
                     value={selectedOptions}
-                    groupBy={(option) => option.label[0].toUpperCase()}
                     getOptionLabel={(option) => option.label}
                     onChange={(_, newValue) => {
                         onChange(newValue.map(v => v.id));

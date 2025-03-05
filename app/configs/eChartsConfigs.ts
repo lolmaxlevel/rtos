@@ -1,6 +1,9 @@
 import type {EChartsOption} from 'echarts';
 import {traceLabels} from '@/app/dict';
 import {SignalMap} from "@/app/types/types";
+import {processStore} from "@/app/store/processStore";
+
+const getProcessName = (handle: number) => processStore.getState().getProcessName(handle);
 
 const createEmptyConfig = (type: 'bar' | 'pie'): EChartsOption => {
     if (type === 'bar') {
@@ -19,18 +22,79 @@ const createEmptyConfig = (type: 'bar' | 'pie'): EChartsOption => {
     };
 };
 
-const prepareChartData = (signals: SignalMap, selectedIds: number[], lastTick: number) => {
-    return selectedIds.map(id => ({
-        name: traceLabels[id],
-        value: signals.get(lastTick)?.get(id) || 0
-    }));
+// Helper function to get a color based on handle ID
+const getHandleColor = (handle: number): string => {
+    const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
+    return colors[handle % colors.length];
 };
 
-export const createLineConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+export const createLineConfig = (signals: SignalMap, selectedIds: number[], selectedHandles: number[] = []): EChartsOption => {
     const ticks = Array.from(signals.keys());
     if (ticks.length === 0) return createEmptyConfig('bar');
 
     const minTick = Math.min(...ticks);
+
+    // Find all unique handles across all ticks
+    const allHandles = new Set<number>();
+    for (const [_, tickMap] of signals.entries()) {
+        for (const handle of tickMap.keys()) {
+            if (selectedHandles.length === 0 || selectedHandles.includes(handle)) {
+                allHandles.add(handle);
+            }
+        }
+    }
+
+    // Create a mapping from handle to vertical position
+    const handlePositions = new Map<number, number>();
+    Array.from(allHandles).sort().forEach((handle, index) => {
+        handlePositions.set(handle, index * 2); // Each handle gets a 2-unit band
+    });
+
+    // Prepare dataset source
+    const datasetSource = Array.from(signals.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([tick, tickMap]) => {
+            const dataPoint: Record<string, number> = {tick};
+
+            // For each handle and selected signal ID
+            for (const handle of allHandles) {
+                for (const id of selectedIds) {
+                    const key = `${traceLabels[id]}_${handle}`;
+                    const value = tickMap.get(handle)?.get(id) || 0;
+
+                    // For signal 121 (active state), place it at the handle's position + value
+                    if (id === 121) {
+                        const basePosition = handlePositions.get(handle) || 0;
+                        dataPoint[key] = basePosition + value;
+                    } else {
+                        // For other signals, we could either skip or use a different visualization
+                        dataPoint[key] = value > 0 ? (handlePositions.get(handle) || 0) + 1 : 0;
+                    }
+                }
+            }
+            return dataPoint;
+        });
+
+    // Create series for each signal-handle combination
+    const series = [];
+    for (const id of selectedIds) {
+        for (const handle of allHandles) {
+            const seriesName = `${traceLabels[id]} (${getProcessName(handle)})`;
+            series.push({
+                name: seriesName,
+                type: 'line',
+                connectNulls: true,
+                step: 'end',
+                smooth: false,
+                symbol: 'none',
+                datasetId: 'dataset',
+                encode: {x: 'tick', y: `${traceLabels[id]}_${handle}`},
+                itemStyle: {color: getHandleColor(handle)}
+            });
+        }
+    }
+
+    const maxPosition = Math.max(...Array.from(handlePositions.values())) + 1;
 
     return {
         tooltip: {
@@ -56,18 +120,28 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], isCu
             pageButtonPosition: 'end',
             selector: false
         },
-        toolbox: {
-            feature: {
-                restore: {}
-            }
-        },
+        toolbox: {feature: {restore: {}}},
         xAxis: {
-            type: 'value',
             name: 'Tick',
             min: minTick
         },
         yAxis: {
-            type: 'value'
+            type: 'value',
+            min: 0,
+            max: maxPosition,
+            interval: 2,
+            axisLabel: {
+                formatter: function (value: number) {
+                    // Convert position back to handle
+                    const handleEntry = Array.from(handlePositions.entries())
+                        .find(([_, pos]) => pos === value);
+                    return handleEntry ? getProcessName(handleEntry[0]) : '';
+                }
+            },
+            splitLine: {
+                show: true,
+                lineStyle: {type: 'dashed'}
+            }
         },
         dataZoom: [
             {
@@ -79,66 +153,50 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], isCu
                 type: 'inside',
                 xAxisIndex: 0,
                 filterMode: 'none'
-            },
-            {
-                type: 'inside',
-                yAxisIndex: 0,
-                filterMode: 'none'
             }
         ],
         dataset: [{
             id: 'dataset',
-            source: selectedIds.length === 0 ? [] : Array.from(signals.entries()).map(([tick, tickSignals]) => {
-                const data: Record<string, number> = {tick};
-                const selectedLabels = new Map(selectedIds.map(id => [id, traceLabels[id]]));
-
-                for (const [id, label] of selectedLabels) {
-                    if (isCumulative) {
-                        let sum = 0;
-                        for (const [t, s] of signals) {
-                            if (t <= tick) {
-                                sum += s.get(id) ?? 0;
-                            }
-                        }
-                        data[label] = sum;
-                    } else {
-                        data[label] = tickSignals.get(id) ?? 0;
-                    }
-                }
-                return data;
-            })
+            source: datasetSource
         }],
-        series: selectedIds.map(id => ({
-            step: 'start',
-            sampling: 'average',
-            name: traceLabels[id],
-            type: 'line',
-            smooth: false,
-            symbol: 'none',
-            datasetId: 'dataset',
-            encode: {x: 'tick', y: traceLabels[id]}
-        }))
+        series: series
     };
 };
 
-export const createBarConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+export const createBarConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
     if (signals.size === 0) return createEmptyConfig('bar');
 
     const lastTick = Math.max(...Array.from(signals.keys()));
-    const data = selectedIds.map(id => {
-        let value = 0;
-        if (isCumulative) {
-            for (const [_, tickSignals] of signals) {
-                value += tickSignals.get(id) || 0;
-            }
-        } else {
-            value = signals.get(lastTick)?.get(id) || 0;
+    const data = [];
+
+    // Get all handles
+    const allHandles = new Set<number>();
+    for (const tickMap of signals.values()) {
+        for (const handle of tickMap.keys()) {
+            allHandles.add(handle);
         }
-        return {
-            name: traceLabels[id],
-            value: value
-        };
-    });
+    }
+
+    // Create data points for each signal-handle combination
+    for (const id of selectedIds) {
+        for (const handle of allHandles) {
+            // Get value from last tick
+            const lastTickMap = signals.get(lastTick);
+            let value = 0;
+
+            if (lastTickMap && lastTickMap.has(handle)) {
+                value = lastTickMap.get(handle)?.get(id) || 0;
+            }
+
+            if (value > 0) {
+                data.push({
+                    name: `${traceLabels[id]} (Process ${handle})`,
+                    value,
+                    itemStyle: {color: getHandleColor(handle)}
+                });
+            }
+        }
+    }
 
     return {
         tooltip: {trigger: 'axis'},
@@ -149,34 +207,50 @@ export const createBarConfig = (signals: SignalMap, selectedIds: number[], isCum
         },
         xAxis: {
             type: 'category',
-            data: data.map(item => item.name)
+            data: data.map(item => item.name),
+            axisLabel: {interval: 0, rotate: 30}
         },
         yAxis: {type: 'value'},
         series: [{
             data,
-            type: 'bar',
-            realtimeSort: true
+            type: 'bar'
         }]
     };
 };
 
-export const createPieConfig = (signals: SignalMap, selectedIds: number[], isCumulative: boolean): EChartsOption => {
+export const createPieConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
     if (signals.size === 0) return createEmptyConfig('pie');
 
     const lastTick = Math.max(...Array.from(signals.keys()));
-    const data = prepareChartData(signals, selectedIds, lastTick);
+    const data = [];
 
-    const filteredData = isCumulative
-        ? data.filter(item => {
-            const value = Array.from(signals.values()).reduce((sum, tickSignals) =>
-                sum + (tickSignals.get(selectedIds[data.indexOf(item)]) || 0), 0);
-            return value > 0;
-        }).map(item => ({
-            ...item,
-            value: Array.from(signals.values()).reduce((sum, tickSignals) =>
-                sum + (tickSignals.get(selectedIds[data.indexOf(item)]) || 0), 0)
-        }))
-        : data.filter(item => item.value > 0);
+    // Get all handles
+    const allHandles = new Set<number>();
+    for (const tickMap of signals.values()) {
+        for (const handle of tickMap.keys()) {
+            allHandles.add(handle);
+        }
+    }
+
+    // Process data for each signal-handle combination
+    for (const id of selectedIds) {
+        for (const handle of allHandles) {
+            const lastTickMap = signals.get(lastTick);
+            let value = 0;
+
+            if (lastTickMap && lastTickMap.has(handle)) {
+                value = lastTickMap.get(handle)?.get(id) || 0;
+            }
+
+            if (value > 0) {
+                data.push({
+                    name: `${traceLabels[id]} (Process ${handle})`,
+                    value,
+                    itemStyle: {color: getHandleColor(handle)}
+                });
+            }
+        }
+    }
 
     return {
         tooltip: {
@@ -193,7 +267,7 @@ export const createPieConfig = (signals: SignalMap, selectedIds: number[], isCum
             name: 'Statistics',
             type: 'pie',
             radius: '50%',
-            data: filteredData
+            data
         }]
     };
 };
