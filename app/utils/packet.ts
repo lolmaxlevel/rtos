@@ -46,7 +46,7 @@ export function parsePacket(data: Uint8Array, offset: number = 0): ParseResult {
             i++;
         }
 
-        processStore.getState().setProcessName(handle, name);
+        processStore.getState().setProcessName(handle, name + ` (${handle})`);
         console.log("Detected name at", offset + 18, "=", name);
     }
 

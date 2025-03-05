@@ -5,32 +5,8 @@ import {processStore} from "@/app/store/processStore";
 
 const getProcessName = (handle: number) => processStore.getState().getProcessName(handle);
 
-const createEmptyConfig = (type: 'bar' | 'pie'): EChartsOption => {
-    if (type === 'bar') {
-        return {
-            xAxis: {type: 'category', data: []},
-            yAxis: {type: 'value'},
-            series: [{type: 'bar', data: []}]
-        };
-    }
-    return {
-        series: [{
-            type: 'pie',
-            radius: '50%',
-            data: []
-        }]
-    };
-};
-
-// Helper function to get a color based on handle ID
-const getHandleColor = (handle: number): string => {
-    const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
-    return colors[handle % colors.length];
-};
-
 export const createLineConfig = (signals: SignalMap, selectedIds: number[], selectedHandles: number[] = []): EChartsOption => {
     const ticks = Array.from(signals.keys());
-    if (ticks.length === 0) return createEmptyConfig('bar');
 
     const minTick = Math.min(...ticks);
 
@@ -38,7 +14,7 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
     const allHandles = new Set<number>();
     for (const [_, tickMap] of signals.entries()) {
         for (const handle of tickMap.keys()) {
-            if (selectedHandles.length === 0 || selectedHandles.includes(handle)) {
+            if (selectedHandles.includes(handle)) {
                 allHandles.add(handle);
             }
         }
@@ -89,7 +65,6 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
                 symbol: 'none',
                 datasetId: 'dataset',
                 encode: {x: 'tick', y: `${traceLabels[id]}_${handle}`},
-                itemStyle: {color: getHandleColor(handle)}
             });
         }
     }
@@ -162,112 +137,112 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
         series: series
     };
 };
-
-export const createBarConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
-    if (signals.size === 0) return createEmptyConfig('bar');
-
-    const lastTick = Math.max(...Array.from(signals.keys()));
-    const data = [];
-
-    // Get all handles
-    const allHandles = new Set<number>();
-    for (const tickMap of signals.values()) {
-        for (const handle of tickMap.keys()) {
-            allHandles.add(handle);
-        }
-    }
-
-    // Create data points for each signal-handle combination
-    for (const id of selectedIds) {
-        for (const handle of allHandles) {
-            // Get value from last tick
-            const lastTickMap = signals.get(lastTick);
-            let value = 0;
-
-            if (lastTickMap && lastTickMap.has(handle)) {
-                value = lastTickMap.get(handle)?.get(id) || 0;
-            }
-
-            if (value > 0) {
-                data.push({
-                    name: `${traceLabels[id]} (Process ${handle})`,
-                    value,
-                    itemStyle: {color: getHandleColor(handle)}
-                });
-            }
-        }
-    }
-
-    return {
-        tooltip: {trigger: 'axis'},
-        legend: {
-            orient: 'horizontal',
-            bottom: 0,
-            show: true
-        },
-        xAxis: {
-            type: 'category',
-            data: data.map(item => item.name),
-            axisLabel: {interval: 0, rotate: 30}
-        },
-        yAxis: {type: 'value'},
-        series: [{
-            data,
-            type: 'bar'
-        }]
-    };
-};
-
-export const createPieConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
-    if (signals.size === 0) return createEmptyConfig('pie');
-
-    const lastTick = Math.max(...Array.from(signals.keys()));
-    const data = [];
-
-    // Get all handles
-    const allHandles = new Set<number>();
-    for (const tickMap of signals.values()) {
-        for (const handle of tickMap.keys()) {
-            allHandles.add(handle);
-        }
-    }
-
-    // Process data for each signal-handle combination
-    for (const id of selectedIds) {
-        for (const handle of allHandles) {
-            const lastTickMap = signals.get(lastTick);
-            let value = 0;
-
-            if (lastTickMap && lastTickMap.has(handle)) {
-                value = lastTickMap.get(handle)?.get(id) || 0;
-            }
-
-            if (value > 0) {
-                data.push({
-                    name: `${traceLabels[id]} (Process ${handle})`,
-                    value,
-                    itemStyle: {color: getHandleColor(handle)}
-                });
-            }
-        }
-    }
-
-    return {
-        tooltip: {
-            trigger: 'item',
-            formatter: '{a} <br/>{b} : {c} ({d}%)'
-        },
-        legend: {
-            type: "scroll",
-            orient: 'vertical',
-            right: 10,
-            show: true
-        },
-        series: [{
-            name: 'Statistics',
-            type: 'pie',
-            radius: '50%',
-            data
-        }]
-    };
-};
+//
+// export const createBarConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
+//     if (signals.size === 0) return createEmptyConfig('bar');
+//
+//     const lastTick = Math.max(...Array.from(signals.keys()));
+//     const data = [];
+//
+//     // Get all handles
+//     const allHandles = new Set<number>();
+//     for (const tickMap of signals.values()) {
+//         for (const handle of tickMap.keys()) {
+//             allHandles.add(handle);
+//         }
+//     }
+//
+//     // Create data points for each signal-handle combination
+//     for (const id of selectedIds) {
+//         for (const handle of allHandles) {
+//             // Get value from last tick
+//             const lastTickMap = signals.get(lastTick);
+//             let value = 0;
+//
+//             if (lastTickMap && lastTickMap.has(handle)) {
+//                 value = lastTickMap.get(handle)?.get(id) || 0;
+//             }
+//
+//             if (value > 0) {
+//                 data.push({
+//                     name: `${traceLabels[id]} (Process ${handle})`,
+//                     value,
+//                     itemStyle: {color: getHandleColor(handle)}
+//                 });
+//             }
+//         }
+//     }
+//
+//     return {
+//         tooltip: {trigger: 'axis'},
+//         legend: {
+//             orient: 'horizontal',
+//             bottom: 0,
+//             show: true
+//         },
+//         xAxis: {
+//             type: 'category',
+//             data: data.map(item => item.name),
+//             axisLabel: {interval: 0, rotate: 30}
+//         },
+//         yAxis: {type: 'value'},
+//         series: [{
+//             data,
+//             type: 'bar'
+//         }]
+//     };
+// };
+//
+// export const createPieConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
+//     if (signals.size === 0) return createEmptyConfig('pie');
+//
+//     const lastTick = Math.max(...Array.from(signals.keys()));
+//     const data = [];
+//
+//     // Get all handles
+//     const allHandles = new Set<number>();
+//     for (const tickMap of signals.values()) {
+//         for (const handle of tickMap.keys()) {
+//             allHandles.add(handle);
+//         }
+//     }
+//
+//     // Process data for each signal-handle combination
+//     for (const id of selectedIds) {
+//         for (const handle of allHandles) {
+//             const lastTickMap = signals.get(lastTick);
+//             let value = 0;
+//
+//             if (lastTickMap && lastTickMap.has(handle)) {
+//                 value = lastTickMap.get(handle)?.get(id) || 0;
+//             }
+//
+//             if (value > 0) {
+//                 data.push({
+//                     name: `${traceLabels[id]} (Process ${handle})`,
+//                     value,
+//                     itemStyle: {color: getHandleColor(handle)}
+//                 });
+//             }
+//         }
+//     }
+//
+//     return {
+//         tooltip: {
+//             trigger: 'item',
+//             formatter: '{a} <br/>{b} : {c} ({d}%)'
+//         },
+//         legend: {
+//             type: "scroll",
+//             orient: 'vertical',
+//             right: 10,
+//             show: true
+//         },
+//         series: [{
+//             name: 'Statistics',
+//             type: 'pie',
+//             radius: '50%',
+//             data
+//         }]
+//     };
+// };

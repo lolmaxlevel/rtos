@@ -6,11 +6,11 @@ import {useEffect, useState, useMemo, useRef} from "react";
 import {SignalMap} from "@/app/types/types";
 import {processPackets} from "@/app/utils/packet";
 import {createLineConfig} from '@/app/configs/eChartsConfigs';
-import StatFilters from '@/app/components/StatFilters';
-import HandleFilters from '@/app/components/HandleFilters';
 import dynamic from 'next/dynamic';
 
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
+const StatFilters = dynamic(() => import('@/app/components/StatFilters'), { ssr: false });
+const HandleFilters = dynamic(() => import('@/app/components/HandleFilters'), { ssr: false });
 
 const UPDATE_INTERVAL = 500;
 
@@ -74,9 +74,9 @@ export default function Home() {
                         handleSignals.set(121, 0);
                         activeHandles.current.delete(handle);
                     }
-                    // console.log(packet.id, packet.tickCount, packet.handle);
+                    console.log(packet.id, packet.tickCount, packet.handle);
                 }
-                console.log(packet.id, packet.tickCount, packet.handle);
+                // console.log(packet.id, packet.tickCount, packet.handle);
                 for (const activeHandle of activeHandles.current) {
                     // Get or create handle map for this tick if it doesn't exist yet
                     let activeHandleSignals = tickMap.get(activeHandle) || new Map();
@@ -108,13 +108,6 @@ export default function Home() {
         }
         return Array.from(handles).sort((a, b) => a - b);
     }, [signals]);
-
-    // Initialize selected handles with all available handles
-    useEffect(() => {
-        if (availableHandles.length > 0 && selectedHandles.length === 0) {
-            setSelectedHandles(availableHandles);
-        }
-    }, [availableHandles, selectedHandles]);
 
     // Little hack to prevent chart caching
     useEffect(() => {
