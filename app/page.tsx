@@ -53,23 +53,39 @@ export default function Home() {
             const tickSignals = new Map<number, Map<number, Map<number, number>>>();
 
             packets.forEach(packet => {
-                if (packet.id < 97) return;
-
                 const tick = packet.tickCount;
                 const handle = packet.handle;
-                const isEnter = packet.id < 300;
-                const baseSignalId = isEnter ? packet.id : packet.id - 203;
-                // Track active signals per handle
+
+                // Initialize maps if needed
                 if (!activeHandles.current.has(handle)) {
                     activeHandles.current.set(handle, new Map());
                 }
                 const handleSignals = activeHandles.current.get(handle)!;
 
-                // Update active signals
-                if (isEnter) {
-                    handleSignals.set(baseSignalId, 1);
-                } else {
-                    handleSignals.delete(baseSignalId);
+                // Handle task signals (86-91)
+                if (packet.id >= 86 && packet.id <= 91) {
+                    const taskId = Math.floor((packet.id - 86) / 2);
+                    const isStart = packet.id % 2 === 0;
+                    const baseSignalId = 86 + (taskId * 2); // Get the START signal ID
+
+                    // Update active signals for tasks
+                    if (isStart) {
+                        handleSignals.set(baseSignalId, 1);
+                    } else {
+                        handleSignals.delete(baseSignalId);
+                    }
+                }
+                // Handle regular trace signals
+                else if (packet.id >= 97) {
+                    const isEnter = packet.id < 300;
+                    const baseSignalId = isEnter ? packet.id : packet.id - 203;
+
+                    // Update active signals
+                    if (isEnter) {
+                        handleSignals.set(baseSignalId, 1);
+                    } else {
+                        handleSignals.delete(baseSignalId);
+                    }
                 }
 
                 // Get or create tick map

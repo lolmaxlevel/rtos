@@ -6,69 +6,73 @@ import {processStore} from "@/app/store/processStore";
 const getProcessName = (handle: number) => processStore.getState().getProcessName(handle);
 
 export const createLineConfig = (signals: SignalMap, selectedIds: number[], selectedHandles: number[] = []): EChartsOption => {
-    const ticks = Array.from(signals.keys());
-    const minTick = Math.min(...ticks);
+    // Pre-calculate handles and positions once
+    const allHandles = new Set(
+        Array.from(signals.values())
+            .flatMap(tickMap => Array.from(tickMap.keys()))
+            .filter(handle => selectedHandles.includes(handle))
+    );
+    const handleArray = Array.from(allHandles).sort();
+    const handlePositions = new Map(handleArray.map((handle, index) => [handle, index * 2]));
 
-    // Find all unique handles across all ticks
-    const allHandles = new Set<number>();
-    for (const [_, tickMap] of signals.entries()) {
-        for (const handle of tickMap.keys()) {
-            if (selectedHandles.includes(handle)) {
-                allHandles.add(handle);
-            }
-        }
-    }
+    // Pre-calculate signal keys
+    const signalKeys = new Map(
+        handleArray.flatMap(handle =>
+            selectedIds.map(id => [`${traceLabels[id]}_${handle}`, { handle, id }])
+        )
+    );
 
-    // Create a mapping from handle to vertical position
-    const handlePositions = new Map<number, number>();
-    Array.from(allHandles).sort().forEach((handle, index) => {
-        handlePositions.set(handle, index * 2); // Each handle gets a 2-unit band
-    });
-
-    // Prepare dataset source
-    const datasetSource = Array.from(signals.entries())
+    // Optimize dataset creation
+    const datasetSource = Array.from(signals)
         .sort(([a], [b]) => a - b)
         .map(([tick, tickMap]) => {
             const dataPoint: Record<string, number> = { tick };
 
-            for (const handle of allHandles) {
-                for (const id of selectedIds) {
-                    const key = `${traceLabels[id]}_${handle}`;
-                    const value = tickMap.get(handle)?.get(id) || 0;
-                    const basePosition = handlePositions.get(handle) || 0;
-                    dataPoint[key] = basePosition + value; // Value will be either 0 or 1
-                }
+            for (const [key, { handle, id }] of signalKeys) {
+                const basePosition = handlePositions.get(handle) || 0;
+                dataPoint[key] = basePosition + (tickMap.get(handle)?.get(id) || 0);
             }
+
             return dataPoint;
         });
 
-    // Create series for each signal-handle combination
-    const series = [];
-    for (const id of selectedIds) {
-        for (const handle of allHandles) {
-            const seriesName = `${traceLabels[id]} (${getProcessName(handle)})`;
-            series.push({
-                name: seriesName,
-                type: 'line',
-                connectNulls: true,
-                step: 'end',
-                smooth: false,
-                symbol: 'none',
-                datasetId: 'dataset',
-                encode: {x: 'tick', y: `${traceLabels[id]}_${handle}`},
-            });
-        }
-    }
+    // Create series efficiently
+    const series = Array.from(signalKeys, ([key, { handle, id }]) => ({
+        name: `${traceLabels[id]} (${getProcessName(handle)})`,
+        type: 'line' as const,
+        connectNulls: true,
+        step: 'end',
+        smooth: false,
+        symbol: 'none',
+        datasetId: 'dataset',
+        encode: { x: 'tick', y: key },
+        animation: false,
+        large: true,
+        largeThreshold: 1000,
+        sampling: 'lttb'
+    }));
 
-    const maxPosition = Math.max(...Array.from(handlePositions.values())) + 1;
+    const maxPosition = handleArray.length * 2;
 
     return {
+        animation: false,
         tooltip: {
             confine: true,
             trigger: 'axis',
-            axisPointer: {animation: false},
+            axisPointer: { animation: false },
             enterable: true,
-            className: 'tooltip'
+            className: 'tooltip',
+            formatter: (params: any[]) => {
+                if (!params?.length) return '';
+
+                const tick = params[0].value.tick;
+                return `Tick: ${tick}<br/>` +
+                    params.map(param => {
+                        const value = param.value[param.encode.y];
+                        const isActive = (value - Math.floor(value)) > 0;
+                        return `${param.seriesName}: <b>${isActive ? 'active' : 'not active'}</b>`;
+                    }).join('<br/>');
+            }
         },
         grid: {
             left: '0%',
@@ -86,10 +90,13 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
             pageButtonPosition: 'end',
             selector: false
         },
-        toolbox: {feature: {restore: {}}},
+        toolbox: { feature: { restore: {} } },
         xAxis: {
             name: 'Tick',
-            min: minTick
+            min: Math.min(...signals.keys()),
+            type: 'value',
+            axisLabel: { showMaxLabel: true },
+            axisTick: { alignWithLabel: true }
         },
         yAxis: {
             type: 'value',
@@ -97,16 +104,14 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
             max: maxPosition,
             interval: 2,
             axisLabel: {
-                formatter: function (value: number) {
-                    // Convert position back to handle
-                    const handleEntry = Array.from(handlePositions.entries())
-                        .find(([_, pos]) => pos === value);
-                    return handleEntry ? getProcessName(handleEntry[0]) : '';
+                formatter: (value: number) => {
+                    const handle = handleArray[value / 2];
+                    return handle ? getProcessName(handle) : '';
                 }
             },
             splitLine: {
                 show: true,
-                lineStyle: {type: 'dashed'}
+                lineStyle: { type: 'dashed' }
             }
         },
         dataZoom: [
@@ -125,115 +130,6 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
             id: 'dataset',
             source: datasetSource
         }],
-        series: series
+        series
     };
 };
-//
-// export const createBarConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
-//     if (signals.size === 0) return createEmptyConfig('bar');
-//
-//     const lastTick = Math.max(...Array.from(signals.keys()));
-//     const data = [];
-//
-//     // Get all handles
-//     const allHandles = new Set<number>();
-//     for (const tickMap of signals.values()) {
-//         for (const handle of tickMap.keys()) {
-//             allHandles.add(handle);
-//         }
-//     }
-//
-//     // Create data points for each signal-handle combination
-//     for (const id of selectedIds) {
-//         for (const handle of allHandles) {
-//             // Get value from last tick
-//             const lastTickMap = signals.get(lastTick);
-//             let value = 0;
-//
-//             if (lastTickMap && lastTickMap.has(handle)) {
-//                 value = lastTickMap.get(handle)?.get(id) || 0;
-//             }
-//
-//             if (value > 0) {
-//                 data.push({
-//                     name: `${traceLabels[id]} (Process ${handle})`,
-//                     value,
-//                     itemStyle: {color: getHandleColor(handle)}
-//                 });
-//             }
-//         }
-//     }
-//
-//     return {
-//         tooltip: {trigger: 'axis'},
-//         legend: {
-//             orient: 'horizontal',
-//             bottom: 0,
-//             show: true
-//         },
-//         xAxis: {
-//             type: 'category',
-//             data: data.map(item => item.name),
-//             axisLabel: {interval: 0, rotate: 30}
-//         },
-//         yAxis: {type: 'value'},
-//         series: [{
-//             data,
-//             type: 'bar'
-//         }]
-//     };
-// };
-//
-// export const createPieConfig = (signals: SignalMap, selectedIds: number[]): EChartsOption => {
-//     if (signals.size === 0) return createEmptyConfig('pie');
-//
-//     const lastTick = Math.max(...Array.from(signals.keys()));
-//     const data = [];
-//
-//     // Get all handles
-//     const allHandles = new Set<number>();
-//     for (const tickMap of signals.values()) {
-//         for (const handle of tickMap.keys()) {
-//             allHandles.add(handle);
-//         }
-//     }
-//
-//     // Process data for each signal-handle combination
-//     for (const id of selectedIds) {
-//         for (const handle of allHandles) {
-//             const lastTickMap = signals.get(lastTick);
-//             let value = 0;
-//
-//             if (lastTickMap && lastTickMap.has(handle)) {
-//                 value = lastTickMap.get(handle)?.get(id) || 0;
-//             }
-//
-//             if (value > 0) {
-//                 data.push({
-//                     name: `${traceLabels[id]} (Process ${handle})`,
-//                     value,
-//                     itemStyle: {color: getHandleColor(handle)}
-//                 });
-//             }
-//         }
-//     }
-//
-//     return {
-//         tooltip: {
-//             trigger: 'item',
-//             formatter: '{a} <br/>{b} : {c} ({d}%)'
-//         },
-//         legend: {
-//             type: "scroll",
-//             orient: 'vertical',
-//             right: 10,
-//             show: true
-//         },
-//         series: [{
-//             name: 'Statistics',
-//             type: 'pie',
-//             radius: '50%',
-//             data
-//         }]
-//     };
-// };

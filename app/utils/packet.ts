@@ -54,7 +54,6 @@ export function parsePacket(data: Uint8Array, offset: number = 0): ParseResult {
     }
 
     const bytesProcessed = 14 + (name.length > 0 ? name.length + 6 : 0);
-
     return { packet: { id, tickCount, handle }, bytesProcessed };
 }
 
