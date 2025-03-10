@@ -7,7 +7,6 @@ const getProcessName = (handle: number) => processStore.getState().getProcessNam
 
 export const createLineConfig = (signals: SignalMap, selectedIds: number[], selectedHandles: number[] = []): EChartsOption => {
     const ticks = Array.from(signals.keys());
-
     const minTick = Math.min(...ticks);
 
     // Find all unique handles across all ticks
@@ -30,22 +29,14 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
     const datasetSource = Array.from(signals.entries())
         .sort(([a], [b]) => a - b)
         .map(([tick, tickMap]) => {
-            const dataPoint: Record<string, number> = {tick};
+            const dataPoint: Record<string, number> = { tick };
 
-            // For each handle and selected signal ID
             for (const handle of allHandles) {
                 for (const id of selectedIds) {
                     const key = `${traceLabels[id]}_${handle}`;
                     const value = tickMap.get(handle)?.get(id) || 0;
-
-                    // For signal 121 (active state), place it at the handle's position + value
-                    if (id === 121) {
-                        const basePosition = handlePositions.get(handle) || 0;
-                        dataPoint[key] = basePosition + value;
-                    } else {
-                        // For other signals, we could either skip or use a different visualization
-                        dataPoint[key] = value > 0 ? (handlePositions.get(handle) || 0) + 1 : 0;
-                    }
+                    const basePosition = handlePositions.get(handle) || 0;
+                    dataPoint[key] = basePosition + value; // Value will be either 0 or 1
                 }
             }
             return dataPoint;

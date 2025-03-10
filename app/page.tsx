@@ -9,8 +9,8 @@ import {createLineConfig} from '@/app/configs/eChartsConfigs';
 import dynamic from 'next/dynamic';
 
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
-const StatFilters = dynamic(() => import('@/app/components/StatFilters'), { ssr: false });
-const HandleFilters = dynamic(() => import('@/app/components/HandleFilters'), { ssr: false });
+const StatFilters = dynamic(() => import('@/app/components/StatFilters'), {ssr: false});
+const HandleFilters = dynamic(() => import('@/app/components/HandleFilters'), {ssr: false});
 
 const UPDATE_INTERVAL = 500;
 
@@ -39,10 +39,10 @@ export default function Home() {
     const [selectedHandles, setSelectedHandles] = useState<number[]>([]);
     const [shouldNotMerge, setShouldNotMerge] = useState(false);
 
-    // Process incoming WebSocket data
-    const activeHandles = useRef(new Set<number>());
 
 // Then update the packet processing logic:
+    const activeHandles = useRef(new Map<number, Map<number, number>>());
+
     useEffect(() => {
         if (lastMessage === null) return;
 
@@ -50,41 +50,45 @@ export default function Home() {
             const packets = processPackets(buffer);
             if (packets.length === 0) return;
 
-            // Process each packet
+            const tickSignals = new Map<number, Map<number, Map<number, number>>>();
+
             packets.forEach(packet => {
+                if (packet.id < 97) return;
+
                 const tick = packet.tickCount;
                 const handle = packet.handle;
+                const isEnter = packet.id < 300;
+                const baseSignalId = isEnter ? packet.id : packet.id - 203;
+                // Track active signals per handle
+                if (!activeHandles.current.has(handle)) {
+                    activeHandles.current.set(handle, new Map());
+                }
+                const handleSignals = activeHandles.current.get(handle)!;
+
+                // Update active signals
+                if (isEnter) {
+                    handleSignals.set(baseSignalId, 1);
+                } else {
+                    handleSignals.delete(baseSignalId);
+                }
 
                 // Get or create tick map
-                let tickMap = bufferedSignals.current.get(tick) || new Map();
-                bufferedSignals.current.set(tick, tickMap);
+                let tickMap = tickSignals.get(tick) || new Map();
+                tickSignals.set(tick, tickMap);
 
                 // Get or create handle map for this tick
-                let handleSignals = tickMap.get(handle) || new Map();
-                tickMap.set(handle, handleSignals);
+                let handleTickSignals = tickMap.get(handle) || new Map();
+                tickMap.set(handle, handleTickSignals);
 
-                // Handle special case for start/end signals
-                if (packet.id === 94 || packet.id === 95) {
-                    if (packet.id === 94) {
-                        // Start signal
-                        handleSignals.set(121, 1);
-                        activeHandles.current.add(handle);
-                    } else if (packet.id === 95) {
-                        // End signal
-                        handleSignals.set(121, 0);
-                        activeHandles.current.delete(handle);
-                    }
-                    console.log(packet.id, packet.tickCount, packet.handle);
-                }
-                // console.log(packet.id, packet.tickCount, packet.handle);
-                for (const activeHandle of activeHandles.current) {
-                    // Get or create handle map for this tick if it doesn't exist yet
-                    let activeHandleSignals = tickMap.get(activeHandle) || new Map();
-                    tickMap.set(activeHandle, activeHandleSignals);
+                // Set all active signals for this handle at this tick
+                handleSignals.forEach((value, signalId) => {
+                    handleTickSignals.set(signalId, value);
+                });
+            });
 
-                    // Set signal 121 to 1 for this active handle
-                    activeHandleSignals.set(121, 1);
-                }
+            // Merge new ticks into buffered signals
+            tickSignals.forEach((tickMap, tick) => {
+                bufferedSignals.current.set(tick, tickMap);
             });
         });
     }, [lastMessage]);
