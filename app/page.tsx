@@ -79,13 +79,22 @@ export default function Home() {
                 else if (packet.id >= 97) {
                     const isEnter = packet.id < 300;
                     const baseSignalId = isEnter ? packet.id : packet.id - 203;
-
                     // Update active signals
                     if (isEnter) {
                         handleSignals.set(baseSignalId, 1);
+                        // console.log(packet)
                     } else {
                         handleSignals.delete(baseSignalId);
                     }
+                }
+                if (packet.id == 67) {
+                    handleSignals.set(999, 1);
+                    // console.log("start", packet.handle, packet.tickCount)
+                }
+
+                if (packet.id == 68) {
+                    handleSignals.delete(999);
+                    // console.log("end", packet.handle, packet.tickCount)
                 }
 
                 // Get or create tick map
@@ -113,8 +122,8 @@ export default function Home() {
     useEffect(() => {
         const intervalId = setInterval(() => {
             setSignals(new Map(bufferedSignals.current));
+            // console.log("ABOBA!!!!!!!!!!!!!!!!")
         }, UPDATE_INTERVAL);
-
         return () => clearInterval(intervalId);
     }, []);
 
@@ -167,7 +176,7 @@ export default function Home() {
                     </Grid>
                     <Grid container spacing={2}>
                         {charts.map(({title, config}) => (
-                            <Grid item xs={12} md={6} key={title}>
+                            <Grid item xs={12} md={12} key={title}>
                                 <Paper sx={{height: '400px', p: 2}}>
                                     <Box sx={{
                                         display: 'flex',

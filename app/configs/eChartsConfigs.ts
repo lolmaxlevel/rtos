@@ -40,15 +40,14 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
     const series = Array.from(signalKeys, ([key, { handle, id }]) => ({
         name: `${traceLabels[id]} (${getProcessName(handle)})`,
         type: 'line' as const,
-        connectNulls: true,
         step: 'end',
         smooth: false,
         symbol: 'none',
         datasetId: 'dataset',
         encode: { x: 'tick', y: key },
         animation: false,
-        large: true,
-        largeThreshold: 1000,
+        // large: true,
+        // largeThreshold: 1000,
         sampling: 'lttb'
     }));
 
@@ -59,7 +58,9 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
         tooltip: {
             confine: true,
             trigger: 'axis',
-            axisPointer: { animation: false },
+            axisPointer: {
+                animation: false,
+            },
             enterable: true,
             className: 'tooltip',
             formatter: (params: any[]) => {
