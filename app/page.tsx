@@ -1,8 +1,11 @@
 'use client'
-import {ThemeProvider, createTheme} from '@mui/material';
+import {Button, ThemeProvider, createTheme} from '@mui/material';
 import {Box, Container, Grid, Paper, Typography} from '@mui/material';
+import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
+import StopIcon from '@mui/icons-material/Stop';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import useWebSocket from "react-use-websocket";
-import {useEffect, useState, useMemo, useRef} from "react";
+import {useEffect, useState, useMemo, useRef, useCallback} from "react";
 import {SignalMap} from "@/app/types/types";
 import {processPackets} from "@/app/utils/packet";
 import {createLineConfig} from '@/app/configs/eChartsConfigs';
@@ -11,8 +14,6 @@ import dynamic from 'next/dynamic';
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
 const StatFilters = dynamic(() => import('@/app/components/StatFilters'), {ssr: false});
 const HandleFilters = dynamic(() => import('@/app/components/HandleFilters'), {ssr: false});
-
-const UPDATE_INTERVAL = 500;
 
 const theme = createTheme({
     components: {
@@ -28,7 +29,8 @@ type ChartConfig = {
 };
 
 export default function Home() {
-    const {lastMessage} = useWebSocket("ws://localhost:8080", {
+    const [isRecording, setIsRecording] = useState(false);
+    const {lastMessage, sendMessage} = useWebSocket("ws://localhost:8080", {
         onOpen: () => console.log('opened'),
         shouldReconnect: () => true,
     });
@@ -39,93 +41,111 @@ export default function Home() {
     const [selectedHandles, setSelectedHandles] = useState<number[]>([]);
     const [shouldNotMerge, setShouldNotMerge] = useState(false);
 
+    const sendTask = useCallback((taskId: number) => {
+        // console.log("Sending task ID:", taskId);
+        if (sendMessage) {
+            sendMessage(new Uint8Array([taskId]));
+        }
+    }, [sendMessage]);
+
 
 // Then update the packet processing logic:
     const activeHandles = useRef(new Map<number, Map<number, number>>());
 
     useEffect(() => {
-        if (lastMessage === null) return;
+        if (!lastMessage || !isRecording) return;
 
         (lastMessage.data as Blob).arrayBuffer().then(buffer => {
             const packets = processPackets(buffer);
             if (packets.length === 0) return;
 
-            const tickSignals = new Map<number, Map<number, Map<number, number>>>();
+            // Process packets in a single batch
+            const newSignals = new Map(bufferedSignals.current);
+            const handles = activeHandles.current;
+
+            // Pre-allocate maps for frequently accessed ticks
+            const tickMaps = new Map<number, Map<number, Map<number, number>>>();
 
             packets.forEach(packet => {
                 const tick = packet.tickCount;
                 const handle = packet.handle;
 
-                // Initialize maps if needed
-                if (!activeHandles.current.has(handle)) {
-                    activeHandles.current.set(handle, new Map());
+                // Get handle signals map (create if needed)
+                let handleSignals = handles.get(handle);
+                if (!handleSignals) {
+                    handleSignals = new Map();
+                    handles.set(handle, handleSignals);
                 }
-                const handleSignals = activeHandles.current.get(handle)!;
 
-                // Handle task signals (86-91)
-                if (packet.id >= 86 && packet.id <= 91) {
+                // Get or create tick map (with caching)
+                let tickMap = tickMaps.get(tick);
+                if (!tickMap) {
+                    tickMap = newSignals.get(tick) || new Map();
+                    tickMaps.set(tick, tickMap);
+                    newSignals.set(tick, tickMap);
+                }
+
+                // Get or create handle map (with caching)
+                let handleTickSignals = tickMap.get(handle);
+                if (!handleTickSignals) {
+                    handleTickSignals = new Map();
+                    tickMap.set(handle, handleTickSignals);
+                }
+
+                // Process signal state based on packet ID
+                if (packet.id === 67) {
+                    handleSignals.set(999, 1);
+                    handleTickSignals.set(999, 1);
+                } else if (packet.id === 68) {
+                    handleSignals.delete(999);
+                    handleTickSignals.set(999, 0);
+                } else if (packet.id >= 86 && packet.id <= 91) {
                     const taskId = Math.floor((packet.id - 86) / 2);
                     const isStart = packet.id % 2 === 0;
-                    const baseSignalId = 86 + (taskId * 2); // Get the START signal ID
+                    const baseSignalId = 86 + (taskId * 2);
 
-                    // Update active signals for tasks
                     if (isStart) {
                         handleSignals.set(baseSignalId, 1);
+                        handleTickSignals.set(baseSignalId, 1);
                     } else {
                         handleSignals.delete(baseSignalId);
+                        handleTickSignals.set(baseSignalId, 0);
                     }
-                }
-                // Handle regular trace signals
-                else if (packet.id >= 97) {
+                } else if (packet.id >= 97) {
                     const isEnter = packet.id < 300;
                     const baseSignalId = isEnter ? packet.id : packet.id - 203;
-                    // Update active signals
+
                     if (isEnter) {
                         handleSignals.set(baseSignalId, 1);
-                        // console.log(packet)
+                        handleTickSignals.set(baseSignalId, 1);
                     } else {
                         handleSignals.delete(baseSignalId);
+                        handleTickSignals.set(baseSignalId, 0);
                     }
                 }
-                if (packet.id == 67) {
-                    handleSignals.set(999, 1);
-                    // console.log("start", packet.handle, packet.tickCount)
-                }
 
-                if (packet.id == 68) {
-                    handleSignals.delete(999);
-                    // console.log("end", packet.handle, packet.tickCount)
-                }
-
-                // Get or create tick map
-                let tickMap = tickSignals.get(tick) || new Map();
-                tickSignals.set(tick, tickMap);
-
-                // Get or create handle map for this tick
-                let handleTickSignals = tickMap.get(handle) || new Map();
-                tickMap.set(handle, handleTickSignals);
-
-                // Set all active signals for this handle at this tick
+                // Copy active signals
                 handleSignals.forEach((value, signalId) => {
-                    handleTickSignals.set(signalId, value);
+                    if (!handleTickSignals.has(signalId)) {
+                        handleTickSignals.set(signalId, value);
+                    }
                 });
             });
 
-            // Merge new ticks into buffered signals
-            tickSignals.forEach((tickMap, tick) => {
-                bufferedSignals.current.set(tick, tickMap);
-            });
+            bufferedSignals.current = newSignals;
         });
-    }, [lastMessage]);
+    }, [lastMessage, isRecording]);
 
     // Update signals periodically
     useEffect(() => {
-        const intervalId = setInterval(() => {
+        if (lastMessage === null) return;
+
+        const timeoutId = setTimeout(() => {
             setSignals(new Map(bufferedSignals.current));
-            // console.log("ABOBA!!!!!!!!!!!!!!!!")
-        }, UPDATE_INTERVAL);
-        return () => clearInterval(intervalId);
-    }, []);
+        }, 100); // More responsive than 500ms
+
+        return () => clearTimeout(timeoutId);
+    }, [lastMessage]);
 
     // Find all available handles
     const availableHandles = useMemo(() => {
@@ -163,16 +183,77 @@ export default function Home() {
         <ThemeProvider theme={theme}>
             <Container maxWidth={false} disableGutters>
                 <Box sx={{p: 2, minHeight: '100vh', bgcolor: 'grey.100'}}>
-                    <Grid sx={{mb: 2}}>
-                        <StatFilters
-                            selectedIds={selectedIds}
-                            onChange={setSelectedIds}
-                        />
-                        <HandleFilters
-                            availableHandles={availableHandles}
-                            selectedHandles={selectedHandles}
-                            onChange={setSelectedHandles}
-                        />
+                    <Grid container spacing={2} sx={{mb: 2}}>
+                        <Grid item xs={12}>
+                            <Box sx={{display: 'flex', alignItems: 'center', mb: 2}}>
+                                <StatFilters
+                                    selectedIds={selectedIds}
+                                    onChange={setSelectedIds}
+                                />
+                                <Button
+                                    variant="contained"
+                                    color={isRecording ? "error" : "primary"}
+                                    onClick={() => setIsRecording(!isRecording)}
+                                    startIcon={isRecording ? <StopIcon/> : <FiberManualRecordIcon/>}
+                                    sx={{ml: 2, height: 40}}
+                                >
+                                    {isRecording ? "Stop Recording" : "Start Recording"}
+                                </Button>
+
+                                {isRecording && (
+                                    <Box
+                                        sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            ml: 2
+                                        }}
+                                    >
+                                        <Box
+                                            sx={{
+                                                width: 12,
+                                                height: 12,
+                                                borderRadius: '50%',
+                                                bgcolor: 'error.main',
+                                                mr: 1,
+                                                animation: 'pulse 1.5s infinite'
+                                            }}
+                                        />
+                                        <Typography variant="body2" color="error">Recording</Typography>
+                                    </Box>
+                                )}
+                            </Box>
+                            <Box sx={{display: 'flex', gap: 2, mb: 2}}>
+                                <Button
+                                    variant="contained"
+                                    color="secondary"
+                                    onClick={() => sendTask(1)}
+                                    startIcon={<PlayArrowIcon/>}
+                                >
+                                    Task 1
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    color="secondary"
+                                    onClick={() => sendTask(1)}
+                                    startIcon={<PlayArrowIcon/>}
+                                >
+                                    Task 2
+                                </Button>
+                                <Button
+                                    variant="contained"
+                                    color="secondary"
+                                    onClick={() => sendTask(1)}
+                                    startIcon={<PlayArrowIcon/>}
+                                >
+                                    Task 3
+                                </Button>
+                            </Box>
+                            <HandleFilters
+                                availableHandles={availableHandles}
+                                selectedHandles={selectedHandles}
+                                onChange={setSelectedHandles}
+                            />
+                        </Grid>
                     </Grid>
                     <Grid container spacing={2}>
                         {charts.map(({title, config}) => (
@@ -190,6 +271,7 @@ export default function Home() {
                                         <ReactECharts
                                             option={config}
                                             notMerge={shouldNotMerge}
+                                            lazyUpdate={true}
                                             style={{height: '100%', width: '100%'}}
                                         />
                                     </Box>
@@ -199,6 +281,19 @@ export default function Home() {
                     </Grid>
                 </Box>
             </Container>
+            <style jsx global>{`
+                @keyframes pulse {
+                    0% {
+                        opacity: 1;
+                    }
+                    50% {
+                        opacity: 0.5;
+                    }
+                    100% {
+                        opacity: 1;
+                    }
+                }
+            `}</style>
         </ThemeProvider>
     );
 }

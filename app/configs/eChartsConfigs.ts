@@ -46,9 +46,9 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
         datasetId: 'dataset',
         encode: { x: 'tick', y: key },
         animation: false,
-        // large: true,
-        // largeThreshold: 1000,
-        sampling: 'lttb'
+        large: true,
+        largeThreshold: 1000,
+        // sampling: 'lttb'
     }));
 
     const maxPosition = handleArray.length * 2;
@@ -58,10 +58,6 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
         tooltip: {
             confine: true,
             trigger: 'axis',
-            axisPointer: {
-                animation: false,
-            },
-            enterable: true,
             className: 'tooltip',
             formatter: (params: any[]) => {
                 if (!params?.length) return '';
@@ -91,7 +87,10 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
             pageButtonPosition: 'end',
             selector: false
         },
-        toolbox: { feature: { restore: {} } },
+        toolbox: {
+            feature: {
+                restore: {},
+            } },
         xAxis: {
             name: 'Tick',
             min: Math.min(...signals.keys()),
