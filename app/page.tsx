@@ -10,10 +10,13 @@ import {SignalMap} from "@/app/types/types";
 import {processPackets} from "@/app/utils/packet";
 import {createLineConfig} from '@/app/configs/eChartsConfigs';
 import dynamic from 'next/dynamic';
+import {processStore} from "@/app/store/processStore";
 
 const ReactECharts = dynamic(() => import('echarts-for-react'), {ssr: false});
 const StatFilters = dynamic(() => import('@/app/components/StatFilters'), {ssr: false});
 const HandleFilters = dynamic(() => import('@/app/components/HandleFilters'), {ssr: false});
+
+const getProcessName = (handle: number) => processStore.getState().getProcessName(handle);
 
 const theme = createTheme({
     components: {
@@ -166,18 +169,30 @@ export default function Home() {
     }, [selectedIds, selectedHandles]);
 
     // Prepare chart configurations
-    const chartConfigs = useMemo(() => ({
-        line: createLineConfig(signals, selectedIds, selectedHandles),
-        // bar: createBarConfig(signals, selectedIds, selectedHandles),
-        // pie: createPieConfig(signals, selectedIds, selectedHandles)
-    }), [signals, selectedIds, selectedHandles]);
+    const chartConfigs = useMemo(() => {
+        // Create a map to store configs for each handle
+        const handleConfigs = new Map<number, any>();
 
-    const charts: ChartConfig[] = [
-        {
-            title: 'Line Chart',
-            config: chartConfigs.line
-        },
-    ];
+        // For each selected handle, create a specific chart config
+        selectedHandles.forEach(handle => {
+            // Filter the signals data for just this handle
+            const handleSignals = new Map<number, Map<number, Map<number, number>>>();
+
+            for (const [tick, tickMap] of signals.entries()) {
+                const handleTickMap = tickMap.get(handle);
+                if (handleTickMap) {
+                    const newTickMap = new Map<number, Map<number, number>>();
+                    newTickMap.set(handle, handleTickMap);
+                    handleSignals.set(tick, newTickMap);
+                }
+            }
+
+            // Create a config for just this handle's data
+            handleConfigs.set(handle, createLineConfig(handleSignals, selectedIds, [handle]));
+        });
+
+        return handleConfigs;
+    }, [signals, selectedIds, selectedHandles]);
 
     return (
         <ThemeProvider theme={theme}>
@@ -234,7 +249,7 @@ export default function Home() {
                                 <Button
                                     variant="contained"
                                     color="secondary"
-                                    onClick={() => sendTask(1)}
+                                    onClick={() => sendTask(2)}
                                     startIcon={<PlayArrowIcon/>}
                                 >
                                     Task 2
@@ -242,7 +257,7 @@ export default function Home() {
                                 <Button
                                     variant="contained"
                                     color="secondary"
-                                    onClick={() => sendTask(1)}
+                                    onClick={() => sendTask(3)}
                                     startIcon={<PlayArrowIcon/>}
                                 >
                                     Task 3
@@ -256,20 +271,20 @@ export default function Home() {
                         </Grid>
                     </Grid>
                     <Grid container spacing={2}>
-                        {charts.map(({title, config}) => (
-                            <Grid item xs={12} md={12} key={title}>
-                                <Paper sx={{height: '400px', p: 2}}>
+                        {selectedHandles.map(handle => (
+                            <Grid item xs={12} md={12} lg={12} key={handle}>
+                                <Paper sx={{height: '300px', p: 2}}>
                                     <Box sx={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         mb: 1
                                     }}>
-                                        <Typography variant="h6">{title}</Typography>
+                                        <Typography variant="h6">{getProcessName(handle)}</Typography>
                                     </Box>
                                     <Box sx={{height: 'calc(100% - 40px)'}}>
                                         <ReactECharts
-                                            option={config}
+                                            option={chartConfigs.get(handle)}
                                             notMerge={shouldNotMerge}
                                             lazyUpdate={true}
                                             style={{height: '100%', width: '100%'}}

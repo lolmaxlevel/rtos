@@ -5,54 +5,85 @@ import {processStore} from "@/app/store/processStore";
 
 const getProcessName = (handle: number) => processStore.getState().getProcessName(handle);
 
+// Global tick-to-time conversion utility
+export const tickToTime = (tick: number): string => {
+    try {
+        // Convert Windows FILETIME tick to JavaScript Date
+        const date = new Date(+(BigInt(tick) / 10_000n - 11644473600000n).toString());
+
+        // Format with milliseconds
+        return new Intl.DateTimeFormat('default', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            fractionalSecondDigits: 3,
+            hour12: false
+        }).format(date);
+    } catch (e) {
+        return "Invalid time";
+    }
+};
+
 export const createLineConfig = (signals: SignalMap, selectedIds: number[], selectedHandles: number[] = []): EChartsOption => {
-    // Pre-calculate handles and positions once
-    const allHandles = new Set(
-        Array.from(signals.values())
-            .flatMap(tickMap => Array.from(tickMap.keys()))
-            .filter(handle => selectedHandles.includes(handle))
-    );
-    const handleArray = Array.from(allHandles).sort();
-    const handlePositions = new Map(handleArray.map((handle, index) => [handle, index * 2]));
+    // We're focusing on one handle per chart
+    const handle = selectedHandles[0];
 
-    // Pre-calculate signal keys
+    // Sort selected IDs for consistent ordering
+    const sortedSelectedIds = [...selectedIds].sort();
+
+    // Create signal keys with vertical positioning information
     const signalKeys = new Map(
-        handleArray.flatMap(handle =>
-            selectedIds.map(id => [`${traceLabels[id]}_${handle}`, { handle, id }])
-        )
+        sortedSelectedIds.map((id, index) => [
+            `${traceLabels[id]}_${handle}`,
+            {
+                handle,
+                id,
+                basePosition: index * 2 // Each signal gets its own vertical position
+            }
+        ])
     );
 
-    // Optimize dataset creation
+    // Create dataset source for this handle
     const datasetSource = Array.from(signals)
         .sort(([a], [b]) => a - b)
         .map(([tick, tickMap]) => {
-            const dataPoint: Record<string, number> = { tick };
+            const dataPoint: Record<string, number> = {tick};
+            const handleTickMap = tickMap.get(handle);
 
-            for (const [key, { handle, id }] of signalKeys) {
-                const basePosition = handlePositions.get(handle) || 0;
-                dataPoint[key] = basePosition + (tickMap.get(handle)?.get(id) || 0);
+            if (handleTickMap) {
+                for (const [key, {id, basePosition}] of signalKeys) {
+                    // Position signal at its base level when active, slightly below when inactive
+                    const isActive = handleTickMap.get(id) > 0;
+                    dataPoint[key] = basePosition + (isActive ? 1 : 0);
+                }
+            } else {
+                // If no data for this tick, use previous values or zero
+                for (const [key, {basePosition}] of signalKeys) {
+                    dataPoint[key] = basePosition; // Inactive state
+                }
             }
 
             return dataPoint;
         });
 
-    // Create series efficiently
-    const series = Array.from(signalKeys, ([key, { handle, id }]) => ({
-        name: `${traceLabels[id]} (${getProcessName(handle)})`,
+    // Create series for each signal with specific display settings
+    const series = Array.from(signalKeys, ([key, {id, basePosition}]) => ({
+        name: `${traceLabels[id]}`,
         type: 'line' as const,
         step: 'end',
         smooth: false,
         symbol: 'none',
         datasetId: 'dataset',
-        encode: { x: 'tick', y: key },
+        encode: {x: 'tick', y: key},
         animation: false,
         large: true,
         largeThreshold: 1000,
-        // sampling: 'lttb'
     }));
 
-    const maxPosition = handleArray.length * 2;
+    // Calculate max Y value based on number of signals
+    const maxPosition = sortedSelectedIds.length * 2;
 
+    // Create the config with vertical stacking
     return {
         animation: false,
         tooltip: {
@@ -63,40 +94,48 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
                 if (!params?.length) return '';
 
                 const tick = params[0].value.tick;
-                return `Tick: ${tick}<br/>` +
+                const timeString = tickToTime(tick);
+
+                return `Time: ${timeString}<br/>Tick: ${tick}<br/>` +
                     params.map(param => {
-                        const value = param.value[param.encode.y];
-                        const isActive = (value - Math.floor(value)) > 0;
-                        return `${param.seriesName}: <b>${isActive ? 'active' : 'not active'}</b>`;
+                        // Get the series name (like "ACTIVE_STATE")
+                        const seriesName = param.seriesName;
+
+                        // Find the key in value object that starts with this series name
+                        const matchingKey = Object.keys(param.value).find(key =>
+                            key.startsWith(seriesName + '_'));
+
+                        // Get the value if we found a matching key
+                        const value = matchingKey ? param.value[matchingKey] : null;
+
+                        // Check if active (non-zero)
+                        const isActive = value % 2 === 1;
+
+                        return `${seriesName}: <b>${isActive ? 'active' : 'not active'}</b>`;
                     }).join('<br/>');
             }
         },
         grid: {
-            left: '0%',
-            right: '22%',
-            top: '5%',
+            left: '3%',
+            right: '5%',
+            top: '15%',
             bottom: '15%',
             containLabel: true
         },
         legend: {
             type: 'scroll',
-            orient: 'vertical',
-            right: 0,
-            top: 20,
+            orient: 'horizontal',
+            bottom: 0,
             show: true,
-            pageButtonPosition: 'end',
-            selector: false
         },
-        toolbox: {
-            feature: {
-                restore: {},
-            } },
         xAxis: {
-            name: 'Tick',
+            name: 'Time',
             min: Math.min(...signals.keys()),
             type: 'value',
-            axisLabel: { showMaxLabel: true },
-            axisTick: { alignWithLabel: true }
+            axisLabel: {
+                formatter: (tick: number) => tickToTime(tick),
+                showMaxLabel: true
+            }
         },
         yAxis: {
             type: 'value',
@@ -105,13 +144,17 @@ export const createLineConfig = (signals: SignalMap, selectedIds: number[], sele
             interval: 2,
             axisLabel: {
                 formatter: (value: number) => {
-                    const handle = handleArray[value / 2];
-                    return handle ? getProcessName(handle) : '';
+                    // Show signal names at their base positions
+                    const index = Math.floor(value / 2);
+                    if (value % 2 === 0 && index < sortedSelectedIds.length) {
+                        return traceLabels[sortedSelectedIds[index]];
+                    }
+                    return '';
                 }
             },
             splitLine: {
                 show: true,
-                lineStyle: { type: 'dashed' }
+                lineStyle: {type: 'dashed'}
             }
         },
         dataZoom: [
